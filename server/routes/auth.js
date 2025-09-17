@@ -1,11 +1,21 @@
 const express = require('express')
 const router = express.Router()
 
+const User = require("../models/userModel")
+
 const app = express()
 
 // Signup 
-router.post('/signup',(req, res) => {
-    res.json({ mssg : 'signup route'})
+router.post('/signup',async (req, res) => {
+    const {email, password} = req.body
+
+    try{
+        const user = await User.create({email, password});
+        res.status(200).json(user)
+    }
+    catch(error){
+        res.status(400).json(error)
+    }
 })
 
 // Login
