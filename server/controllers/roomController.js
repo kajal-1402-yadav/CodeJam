@@ -15,15 +15,24 @@ const createRoom = async (req, res) => {
             return res.status(400).json({ error: "Invalid createdBy ID" });
         }
 
-        const participantIds = Array.isArray(participants)
-            ? participants.filter(id => mongoose.Types.ObjectId.isValid(id))
-                .map(id => new mongoose.Types.ObjectId(id))
-            : [];
+        if (participants && !Array.isArray(participants)) {
+            return res.status(400).json({ error: "Participants must be an array" });
+        }
+
+        if (participants) {
+            const invalidParticipants = participants.filter(id => !mongoose.Types.ObjectId.isValid(id));
+            if (invalidParticipants.length > 0) {
+                return res.status(400).json({ 
+                    error: "Invalid participant Ids",
+                    invalidIds: invalidParticipants
+                });
+            }
+        }
 
         const room = await Room.create({
             name,
-            createdBy: new mongoose.Types.ObjectId(createdBy),
-            participants: participantIds
+            createdBy,
+            participants: participants || []
         });
 
         res.status(201).json(room);
@@ -75,6 +84,7 @@ const updateRoom = async (req, res) => {
             req.body,
             { new: true, runValidators: true }
         ).populate('createdBy participants', 'name email');
+
         if (!updatedRoom) {
             return res.status(404).json({ error: 'Room not found' });
         }
