@@ -36,7 +36,7 @@ userSchema.statics.signup = async function(email, password){
 
     const exists = await this.findOne({ email })
 
-    if(!exists){
+    if(exists){
         throw Error('Email already exists')
     }
 
@@ -49,7 +49,7 @@ userSchema.statics.signup = async function(email, password){
 }
 
 // static login
-userSchema.statics.login = async function(req, res){
+userSchema.statics.login = async function(email, password){
 
     //validation
     if(!email || !password){
