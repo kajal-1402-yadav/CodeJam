@@ -8,6 +8,7 @@ router.get('/:roomId/users',(req, res) => {
     res.json({ mssg : 'get all active users'})
 })
 
+
 // get a specific user
 router.get('/users/:userId',(req, res) => {
     res.json({ msg: `Get user ${req.params.userId} works` })

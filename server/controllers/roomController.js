@@ -1,7 +1,6 @@
 const Room = require("../models/roomModel");
 const mongoose = require("mongoose");
 
-
 //create a room
 const createRoom = async (req, res) => {
     try {
