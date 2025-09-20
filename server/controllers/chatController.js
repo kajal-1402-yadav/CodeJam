@@ -35,14 +35,20 @@ const createChat = async (req, res) => {
 const getChatsByRoom = async (req, res) => {
     try {
         const { roomId } = req.params;
-        
+
         if (!mongoose.Types.ObjectId.isValid(roomId)) {
             return res.status(400).json({ error: "Invalid room ID" });
         }
 
-        const chats = await Chat.find({
-            room: roomId
-        }).populate('sender', 'email').sort({ createdAt: 1 });
+        const limit = parseInt(req.query.limit) || 50;
+        const page = parseInt(req.query.page) || 1;
+
+        const chats = await Chat.find({ room: roomId })
+            .populate('sender', 'email')
+            .sort({ createdAt: 1 })
+            .skip((page - 1) * limit)
+            .limit(limit);
+            
         res.status(200).json(chats);
     } catch (error) {
         res.status(400).json({ error: error.message });

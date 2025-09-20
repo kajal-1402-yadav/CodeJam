@@ -1,27 +1,27 @@
 const express = require('express')
 const router = express.Router()
+const User = require('../models/userModel');
+const { 
+    getUserById,
+    updateUser,
+    deleteUser,
+    getAllUsers
+} = require("../controllers/userController")
 
-const app = express()
+const requireAuth = require('../middleware/requireAuth');
 
-// get all active users in a room
-router.get('/:roomId/users',(req, res) => {
-    res.json({ mssg : 'get all active users'})
-})
+router.use(requireAuth);
 
+// Get all users
+router.get('/', getAllUsers);
 
 // get a specific user
-router.get('/users/:userId',(req, res) => {
-    res.json({ msg: `Get user ${req.params.userId} works` })
-})
+router.get('/profile', getUserById)
 
 // update a specifc user
-router.put('/users/:userId',(req, res) => {
-    res.json({ msg: `Update user ${req.params.userId} works` });
-})
+router.put('/profile', requireAuth ,updateUser)
 
 // delete a specific user
-router.delete('/users/:userId',(req, res) => {
-     res.json({ msg: `Delete user ${req.params.userId} works` });
-})
+router.delete('/profile', requireAuth, deleteUser)
 
 module.exports = router;

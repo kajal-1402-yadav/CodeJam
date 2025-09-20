@@ -20,7 +20,7 @@ app.use('/api/auth', authRoutes)
 app.use('/api/rooms', chatRoutes)
 app.use('/api/rooms', fileRoutes)
 app.use('/api/rooms', roomRoutes)
-app.use('/api/rooms', userRoutes)
+app.use('/api/users', userRoutes)
 
 //connect to db
 mongoose.connect(process.env.MONGO_URI)

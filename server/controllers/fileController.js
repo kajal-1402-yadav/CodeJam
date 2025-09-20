@@ -41,9 +41,16 @@ const getFilesByRoom = async (req, res) => {
             return res.status(400).json({ error: "Invalid room ID" });
         }
 
-        const files = await File.find({ 
-            room: roomId 
-        }).populate('uploadedBy', 'name email').sort({ createdAt: -1 });
+        const limit = parseInt(req.query.limit) || 50;
+        const page = parseInt(req.query.page) || 1;
+
+        const files = await File.find({
+            room: roomId
+        })
+        .populate('uploadedBy', 'name email')
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
 
         res.status(200).json(files);
     } catch (error) {
@@ -63,9 +70,9 @@ const getFileById = async (req, res) => {
             return res.status(400).json({ error: "Invalid file ID" });
         }
 
-        const file = await File.findOne({ 
+        const file = await File.findOne({
             _id: fileId,
-            room: roomId 
+            room: roomId
         }).populate('uploadedBy', 'name email');
 
         if (!file) {
@@ -91,7 +98,11 @@ const updateFile = async (req, res) => {
             return res.status(400).json({ error: "Invalid file ID" });
         }
 
-        const updateData = {};
+        const allowedUpdates = ['filename', 'content'];
+        const updateData = Object.keys(req.body)
+            .filter(key => allowedUpdates.includes(key))
+            .reduce((obj, key) => { obj[key] = req.body[key]; return obj; }, {});
+
 
         if (filename !== undefined) {
             updateData.filename = filename;

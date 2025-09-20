@@ -78,6 +78,8 @@ const updateRoom = async (req, res) => {
             return res.status(400).json({ error: "Invalid room ID" });
         }
 
+        delete req.body.createdBy;
+
         const updatedRoom = await Room.findByIdAndUpdate(
             req.params.roomId,
             req.body,
