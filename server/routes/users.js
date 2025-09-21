@@ -4,19 +4,15 @@ const User = require('../models/userModel');
 const { 
     getUserById,
     updateUser,
-    deleteUser,
-    getAllUsers
+    deleteUser 
 } = require("../controllers/userController")
 
 const requireAuth = require('../middleware/requireAuth');
 
 router.use(requireAuth);
 
-// Get all users
-router.get('/', getAllUsers);
-
 // get a specific user
-router.get('/profile', getUserById)
+router.get('/profile', requireAuth, getUserById)
 
 // update a specifc user
 router.put('/profile', requireAuth ,updateUser)
