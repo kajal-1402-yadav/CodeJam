@@ -1,4 +1,3 @@
-
 const Navbar = () => {
     return (
         <header className="sticky bg-[#1a1818] top-0 z-50 w-full border-b border-gray-800/50 backdrop-blur-sm">
