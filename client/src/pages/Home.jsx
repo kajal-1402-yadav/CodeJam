@@ -1,9 +1,14 @@
 import { Users, Code2, MessageSquare } from "lucide-react";
+import Navbar from '../components/Navbar'
+
 
 const Home = () => {
     return (
         <div className="flex min-h-screen flex-col bg-[#1E1E1E] text-gray-200">
+
             <main className="flex-grow">
+                {/* Navbar */}
+                <Navbar />
 
                 {/* Hero Section */}
                 <section className="relative py-20 sm:py-24 md:py-32 lg:py-40 bg-gradient-to-br from-[#A78BFA]/30 via-transparent to-[#1E1E1E]">
@@ -37,7 +42,7 @@ const Home = () => {
                             </p>
                         </div>
                         <div className="mt-12 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
-                            
+
                             {/* Feature 1 */}
                             <div className="rounded-xl border border-gray-800 bg-[#1E1E1E]/50 p-6 shadow-sm">
                                 <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#A78BFA]/10 text-[#A78BFA]">
