@@ -2,6 +2,8 @@ require('dotenv').config()
 
 const express = require('express')
 const mongoose = require("mongoose")
+const cors = require('cors')
+
 
 const { authRoutes, roomRoutes, fileRoutes, chatRoutes, userRoutes } = require("./routes");
 
@@ -9,6 +11,7 @@ const { authRoutes, roomRoutes, fileRoutes, chatRoutes, userRoutes } = require("
 const app = express()
 
 //middleware
+app.use(cors())  // Add this before your routes
 app.use(express.json())
 app.use((req, res, next) => {
     console.log(req.path, req.method)

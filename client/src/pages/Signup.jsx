@@ -1,4 +1,6 @@
 import { useState } from "react";
+import useSignup from '../hooks/useSignup'
+
 
 const Signup = () => {
     const [data, setData] = useState({
@@ -8,13 +10,15 @@ const Signup = () => {
         confirmPassword: ""
     })
 
+    const { signup, isLoading, error} = useSignup()
+
     const handleChange = (e) => {
         setData({ ...data, [e.target.name]: e.target.value });
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        console.log(data);
+        await signup(data.username,data.email,data.password);
     };
 
     return (
@@ -106,13 +110,14 @@ const Signup = () => {
 
                     {/* Submit */}
                     <div className="text-center">
-                        <button
+                        <button disabled={isLoading}
                             type="submit"
                             className="w-full rounded-xl bg-[#A78BFA] px-8 py-3 text-base font-bold text-[#1E1E1E] shadow-lg shadow-[#A78BFA]/20 hover:bg-[#A78BFA]/90 transition-colors duration-200"
                         >
                             Sign Up
                         </button>
                     </div>
+                    {error && <div>{error}</div>}
                 </form>
 
                 <p className="mt-6 text-center text-sm text-gray-400">
