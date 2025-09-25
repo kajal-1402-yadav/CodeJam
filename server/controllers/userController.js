@@ -25,18 +25,32 @@ const signupUser = async (req, res) => {
     }
 }
 
-// login
+// login (email or username)
 const loginUser = async (req, res) => {
     try {
+        const { identifier, password } = req.body
 
-        const { email, password } = req.body
+        if (!identifier || !password) {
+            return res.status(400).json({ error: 'All fields must be filled!' })
+        }
 
-        const user = await User.login(email, password)
+        // Determine if identifier is an email
+        const query = validator.isEmail(identifier)
+            ? { email: identifier.toLowerCase() }
+            : { username: identifier }
 
-        // create token
+        const user = await User.findOne(query)
+        if (!user) {
+            return res.status(400).json({ error: 'Incorrect credentials!' })
+        }
+
+        const match = await require('bcrypt').compare(password, user.password)
+        if (!match) {
+            return res.status(400).json({ error: 'Incorrect password' })
+        }
+
         const token = createToken(user._id)
-
-        res.status(200).json({ email, token })
+        res.status(200).json({ _id: user._id, username: user.username, email: user.email, token })
     }
     catch (error) {
         res.status(400).json({ error: error.message })
