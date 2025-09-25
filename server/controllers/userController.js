@@ -21,6 +21,14 @@ const signupUser = async (req, res) => {
         res.status(200).json({ _id: user._id, username: user.username, email: user.email, token })
     }
     catch (error) {
+        if (error && (error.code === 11000 || error.name === 'MongoServerError') && error.keyPattern) {
+            if (error.keyPattern.username) {
+                return res.status(400).json({ error: 'Username already exists' })
+            }
+            if (error.keyPattern.email) {
+                return res.status(400).json({ error: 'Email already exists' })
+            }
+        }
         res.status(400).json({ error: error.message })
     }
 }

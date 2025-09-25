@@ -23,8 +23,15 @@ const useSignup = () =>{
         const json = await response.json()
 
         if(!response.ok){
+            const raw = json?.error || 'Signup failed';
+            let message = raw;
+            if (/All fields must be filled/i.test(raw)) message = 'Please fill in all fields.';
+            else if (/Email is not valid/i.test(raw)) message = 'Please enter a valid email address.';
+            else if (/Password is not strong enough/i.test(raw)) message = 'Password must be 8+ chars with upper, lower, number and symbol.';
+            else if (/Email already exists/i.test(raw)) message = 'An account with this email already exists.';
+            else if (/username/i.test(raw) && /exists|required/i.test(raw)) message = 'Please choose a different username.';
             setIsLoading(false)
-            setError(json.error)
+            setError(message)
             return;
         }
 

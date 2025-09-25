@@ -1,19 +1,23 @@
 import { useState } from "react";
+import useLogin  from "../hooks/useLogin"
 
 const Login = () => {
   const [data, setData] = useState({
-    email: "",
+    identifier: "",
     password: "",
   });
+
+  const { login, error, isLoading} = useLogin()
 
   const handleChange = (e) => {
     setData({ ...data, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    // TODO: call login API
-    console.log(data);
+    await login(data.identifier, data.password);
+    console.log(data)
+
   };
 
   return (
@@ -25,22 +29,22 @@ const Login = () => {
         </p>
 
         <form onSubmit={handleSubmit} className="mt-8 space-y-6">
-          {/* Email */}
+          {/* Email or Username */}
           <div>
             <label
-              htmlFor="email"
+              htmlFor="identifier"
               className="block text-sm font-medium text-gray-300 mb-2"
             >
-              Email
+              Email or Username
             </label>
             <input
-              type="email"
-              id="email"
-              name="email"
-              value={data.email}
+              type="text"
+              id="identifier"
+              name="identifier"
+              value={data.identifier}
               onChange={handleChange}
               className="w-full px-4 py-3 rounded-xl bg-[#1E1E1E] border border-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#A78BFA] focus:border-transparent"
-              placeholder="you@example.com"
+              placeholder="you@example.com or your username"
             />
           </div>
 
@@ -65,13 +69,21 @@ const Login = () => {
 
           {/* Submit */}
           <div className="text-center">
-            <button
+            <button disabled={isLoading}
               type="submit"
-              className="w-full rounded-xl bg-[#A78BFA] px-8 py-3 text-base font-bold text-[#1E1E1E] shadow-lg shadow-[#A78BFA]/20 hover:bg-[#A78BFA]/90 transition-colors duration-200"
+              className="w-full rounded-xl bg-[#A78BFA] px-8 py-3 text-base font-bold text-[#1E1E1E] shadow-lg shadow-[#A78BFA]/20 hover:bg-[#A78BFA]/90 transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              Log In
+              {isLoading && (
+                <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                </svg>
+              )}
+              {isLoading ? 'Logging in…' : 'Log In'}
             </button>
           </div>
+          {error && <div className="p-3 bg-red-500/10 border border-red-500 text-red-500 rounded-lg">{error}</div>}
+
         </form>
 
         <p className="mt-6 text-center text-sm text-gray-400">

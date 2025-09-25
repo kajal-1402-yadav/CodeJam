@@ -8,13 +8,16 @@ const userSchema = new Schema({
     username: { 
         type: String, 
         required: true, 
-        unique: true 
+        unique: true,
+        lowercase: true,
+        trim: true
     },
     email: {
         type: String,
         required: true,
         unique: true,
-        lowercase: true
+        lowercase: true,
+        trim: true
     },
     password: {
         type: String,
@@ -39,25 +42,34 @@ userSchema.statics.signup = async function (username, email, password) {
         throw Error("Password is not strong enough")
     }
 
-    const exists = await this.findOne({ email })
+    const normalizedEmail = String(email).trim().toLowerCase()
+    const normalizedUsername = String(username).trim().toLowerCase()
 
-    if (exists) {
+    // Check for existing email
+    const existingEmail = await this.findOne({ email: normalizedEmail })
+    if (existingEmail) {
         throw Error('Email already exists')
+    }
+
+    // Check for existing username
+    const existingUsername = await this.findOne({ username: normalizedUsername })
+    if (existingUsername) {
+        throw Error('Username already exists')
     }
 
     const salt = await bcrypt.genSalt(10)
     const hash = await bcrypt.hash(password, salt)
 
-    const user = await this.create({ username,email, password: hash })
+    const user = await this.create({ username: normalizedUsername, email: normalizedEmail, password: hash })
 
     return user
 }
 
 // static login
-userSchema.statics.login = async function (username, email, password) {
+userSchema.statics.login = async function (email, password) {
 
     //validation
-    if (!username || !email || !password) {
+    if (!email || !password) {
         throw Error("All fields must be filled!")
     }
 
