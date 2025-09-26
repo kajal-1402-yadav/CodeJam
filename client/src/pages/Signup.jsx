@@ -1,5 +1,6 @@
 import { useState } from "react";
-import useSignup from '../hooks/useSignup'
+import useSignup from '../hooks/useSignup';
+import { useNavigate } from 'react-router-dom';
 
 
 const Signup = () => {
@@ -10,8 +11,9 @@ const Signup = () => {
         confirmPassword: ""
     })
 
-    const { signup, isLoading, error} = useSignup()
-    const [formError, setFormError] = useState("")
+    const { signup, isLoading, error} = useSignup();
+    const navigate = useNavigate();
+    const [formError, setFormError] = useState("");
 
     const handleChange = (e) => {
         setData({ ...data, [e.target.name]: e.target.value });
@@ -24,8 +26,10 @@ const Signup = () => {
             setFormError("Passwords do not match.")
             return
         }
-        await signup(data.username,data.email,data.password);
-        console.log(data)
+        const success = await signup(data.username, data.email, data.password);
+        if (success) {
+            navigate("/dashboard");
+        }
     };
 
     return (

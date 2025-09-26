@@ -1,5 +1,6 @@
 import { useState } from "react";
 import useLogin  from "../hooks/useLogin"
+import { useNavigate } from "react-router-dom";
 
 const Login = () => {
   const [data, setData] = useState({
@@ -8,6 +9,7 @@ const Login = () => {
   });
 
   const { login, error, isLoading} = useLogin()
+  const navigate = useNavigate()
 
   const handleChange = (e) => {
     setData({ ...data, [e.target.name]: e.target.value });
@@ -15,7 +17,10 @@ const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    await login(data.identifier, data.password);
+    const success = await login(data.identifier, data.password);
+    if(success){
+      navigate("/dashboard")
+    }
     console.log(data)
 
   };

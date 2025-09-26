@@ -1,5 +1,6 @@
 import { Users, Code2, MessageSquare } from "lucide-react";
 import Navbar from '../components/Navbar'
+import { Link } from "react-router-dom";
 
 
 const Home = () => {
@@ -20,12 +21,12 @@ const Home = () => {
                             Collaborate on code in real-time with your team. No setup required. Just pure, seamless coding.
                         </p>
                         <div className="mt-8 flex flex-wrap justify-center gap-4">
-                            <button className="rounded-xl bg-[#A78BFA] px-6 py-3 text-base font-bold text-[#1E1E1E] shadow-lg shadow-[#A78BFA]/20 hover:bg-[#A78BFA]/90">
+                            <Link to="/signup" className="rounded-xl bg-[#A78BFA] px-6 py-3 text-base font-bold text-[#1E1E1E] shadow-lg shadow-[#A78BFA]/20 hover:bg-[#A78BFA]/90">
                                 Create a Room
-                            </button>
-                            <button className="rounded-xl bg-[#A78BFA]/20 px-6 py-3 text-base font-bold text-white border border-purple-500/30 ring-1 ring-inset ring-[#A78BFA]/30 hover:bg-[#A78BFA]/30">
+                            </Link>
+                            <Link to="/login"className="rounded-xl bg-[#A78BFA]/20 px-6 py-3 text-base font-bold text-white border border-purple-500/30 ring-1 ring-inset ring-[#A78BFA]/30 hover:bg-[#A78BFA]/30">
                                 Join a Room
-                            </button>
+                            </Link>
                         </div>
                     </div>
                 </section>
