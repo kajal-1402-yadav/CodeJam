@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import useAuthContext from './useAuthContext';
 
-
 const useLogin = () => {
     const [error, setError] = useState(null)
     const [isLoading, setIsLoading] = useState(null)
@@ -24,7 +23,6 @@ const useLogin = () => {
             const json = await response.json()
 
             if (!response.ok) {
-                // Friendlier error messages
                 const raw = json?.error || 'Login failed'
                 let message = raw
                 if (/All fields must be filled/i.test(raw)) message = 'Please enter your email or username and password.'
@@ -32,7 +30,7 @@ const useLogin = () => {
                 else if (/Incorrect password/i.test(raw)) message = 'Incorrect password. Please try again.'
                 setIsLoading(false)
                 setError(message)
-                return;
+                return false;
             }
 
             if (response.ok) {
@@ -42,11 +40,13 @@ const useLogin = () => {
 
                 dispatch({ type: 'LOGIN', payload: json })
                 setIsLoading(false);
+                return true;
             }
         }
         catch (err) {
             setError('An error occurred during login')
             setIsLoading(false)
+            return false;
         }
 
     }
