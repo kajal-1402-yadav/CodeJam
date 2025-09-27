@@ -70,50 +70,79 @@ const loginUser = async (req, res) => {
 const getUserById = async (req, res) => {
     try {
         const userId = req.user._id;
-
         const user = await User.findById(userId).select('-password');
-
         if (!user) return res.status(404).json({ error: 'User not found' });
-
         res.status(200).json({ user });
-    }
-    catch (error) {
+    } catch (error) {
         res.status(400).json({ error: error.message });
     }
 }
 
-// update a specifc user
+
+
 const updateUser = async (req, res) => {
     try {
         const userId = req.user._id;
-        const { username, email } = req.body;
+        const { username, email, currentPassword, newPassword } = req.body;
 
-        if (!email) {
-            return res.status(400).json({ error: 'Email is required' });
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
         }
 
-        if (!validator.isEmail(email)) {
-            return res.status(400).json({ error: 'Invalid email format' });
-        }
-
-        const existingEmail = await User.findOne({ email, _id: { $ne: userId } });
-        if (existingEmail) {
-            return res.status(400).json({ error: "Email already in use" });
-        }
-
-        if (username) {
-            const existingUsername = await User.findOne({
-                username,
-                _id: { $ne: userId },
-            });
-            if (existingUsername) {
-                return res.status(400).json({ error: "Username already in use" });
+        // Password checks
+        if (currentPassword || newPassword) {
+            if (!currentPassword) {
+                return res.status(400).json({ error: 'Current password is required to change password' });
             }
+            if (!newPassword) {
+                return res.status(400).json({ error: 'New password is required' });
+            }
+
+            const isMatch = await require('bcrypt').compare(currentPassword, user.password);
+            if (!isMatch) {
+                return res.status(400).json({ error: 'Current password is incorrect' });
+            }
+
+            if (newPassword.length < 6) {
+                return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+            }
+        }
+
+        // Email validation
+        if (email) {
+            if (!validator.isEmail(email)) {
+                return res.status(400).json({ error: 'Invalid email format' });
+            }
+            const existingEmail = await User.findOne({ email, _id: { $ne: userId } });
+            if (existingEmail) {
+                return res.status(400).json({ error: 'Email already in use' });
+            }
+        }
+
+        // Username validation
+        if (username) {
+            if (username.trim() === '') {
+                return res.status(400).json({ error: 'Username cannot be empty' });
+            }
+            const existingUsername = await User.findOne({ username, _id: { $ne: userId } });
+            if (existingUsername) {
+                return res.status(400).json({ error: 'Username already in use' });
+            }
+        }
+
+        // Update object
+        const updateData = {};
+        if (username) updateData.username = username;
+        if (email) updateData.email = email;
+        if (newPassword) {
+            const salt = await require('bcrypt').genSalt(10);
+            updateData.password = await require('bcrypt').hash(newPassword, salt);
         }
 
         const updatedUser = await User.findByIdAndUpdate(
             userId,
-            { username, email },
+            updateData,
             { new: true, runValidators: true }
         ).select('-password');
 
@@ -121,26 +150,29 @@ const updateUser = async (req, res) => {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        res.status(200).json({ user: updatedUser });
-    }
-    catch (error) {
-        res.status(400).json({ error: error.message });
-    }
-}
+        const token = createToken(updatedUser._id);
 
+        res.status(200).json({ user: updatedUser, token });
+    } catch (error) {
+        if (error.name === 'ValidationError') {
+            return res.status(400).json({ error: error.message });
+        }
+        console.error('Update user error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+};
+
+
+// delete a user
 const deleteUser = async (req, res) => {
     try {
         const userId = req.user._id;
-
         const deletedUser = await User.findByIdAndDelete(userId);
-
         if (!deletedUser) {
             return res.status(404).json({ error: 'User not found' });
         }
-
         res.status(200).json({ message: 'User deleted successfully' });
-    }
-    catch (error) {
+    } catch (error) {
         res.status(400).json({ error: error.message });
     }
 }

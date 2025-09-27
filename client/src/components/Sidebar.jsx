@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect } from "react";
-import { ChevronLeft, ChevronRight, Users, FilePlus, Settings, Bell, LogOut, Menu, User } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Users, FilePlus, Settings, Bell, LogOut, Menu, User } from "lucide-react";
 import useAuthContext from "../hooks/useAuthContext";
 import useLogout from "../hooks/useLogout";
 
 const ProfilePopup = ({ isVisible, onToggle, onLogout }) => {
   const popupRef = useRef(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -22,20 +24,22 @@ const ProfilePopup = ({ isVisible, onToggle, onLogout }) => {
 
   if (!isVisible) return null;
 
+  const handleManageAccount = () => {
+    navigate('/account');
+    onToggle();
+  };
+
   return (
     <div ref={popupRef} className="absolute bottom-full mb-3 w-full bg-[#1E1E1E] border border-gray-700 rounded-lg shadow-lg p-2">
-      <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md hover:bg-gray-700 transition-colors">
+      <button onClick={handleManageAccount} className="w-full flex items-center gap-3 px-3 py-2 rounded-md hover:bg-gray-700 transition-colors">
         <User size={18} />
+        <span>Manage Account</span>
       </button>
-      <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md hover:bg-gray-700 transition-colors">
-        <Settings size={18} />
-        <span>Settings</span>
+      <div className="border-t border-gray-700 my-1"></div>
+      <button onClick={() => onLogout()} className="w-full flex items-center gap-3 px-3 py-2 rounded-md hover:bg-gray-700 transition-colors">
+        <LogOut size={18} />
+        <span>Logout</span>
       </button>
-          <div className="border-t border-gray-700 my-1"></div>
-          <button onClick={() => onLogout()} className="w-full flex items-center gap-3 px-3 py-2 rounded-md hover:bg-gray-700 transition-colors">
-            <LogOut size={18} />
-            <span>Logout</span>
-          </button>
     </div>
   );
 };
