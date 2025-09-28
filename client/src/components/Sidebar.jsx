@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Users, FilePlus, Settings, Bell, LogOut, Menu, User } from "lucide-react";
 import useAuthContext from "../hooks/useAuthContext";
 import useLogout from "../hooks/useLogout";
@@ -47,14 +47,20 @@ const ProfilePopup = ({ isVisible, onToggle, onLogout }) => {
 const Sidebar = () => {
   const { user } = useAuthContext();
   const { logout } = useLogout();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [isProfilePopupVisible, setIsProfilePopupVisible] = useState(false);
   const navItems = [
-    { name: "Dashboard", icon: Users },
-    { name: "Rooms", icon: FilePlus },
-    { name: "Contributors", icon: Users },
-    { name: "Templates", icon: Settings },
-    { name: "Notifications", icon: Bell },
+    { name: "Dashboard", icon: Users, path: "/dashboard" },
+    { name: "Rooms", icon: FilePlus, path: "/rooms" },
+    { name: "Contributors", icon: Users, path: "/contributors" },
+    { name: "Templates", icon: Settings, path: "/templates" },
+    { name: "Notifications", icon: Bell, path: "/notifications" },
   ];
+
+  const handleNavClick = (path) => {
+    navigate(path);
+  };
 
   return (
     <aside className="fixed top-0 left-0 h-full bg-[#1E1E1E] text-gray-300 flex flex-col border-r border-gray-800 w-64 z-50">
@@ -71,10 +77,16 @@ const Sidebar = () => {
         <nav className="flex-grow px-4 space-y-2">
           {navItems.map((item) => {
             const Icon = item.icon;
+            const isActive = location.pathname === item.path;
             return (
               <button
                 key={item.name}
-                className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors duration-200 hover:bg-gray-800 hover:text-white"
+                onClick={() => handleNavClick(item.path)}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors duration-200 ${
+                  isActive 
+                    ? 'bg-[#A78BFA] text-[#1E1E1E] font-semibold' 
+                    : 'hover:bg-gray-800 hover:text-white'
+                }`}
                 aria-label={item.name}
               >
                 <Icon size={20} />
