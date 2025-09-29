@@ -5,7 +5,12 @@ import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Dashboard from "./pages/Dashboard";
+import Rooms from "./pages/Rooms";
+import Contributors from "./pages/Contributors";
+import Templates from "./pages/Templates";
+import Notifications from "./pages/Notifications";
 import ManageAccount from "./pages/ManageAccount";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 function App() {
   const { user } = useAuthContext();
@@ -15,13 +20,17 @@ function App() {
       <Router>
         <div className="flex">
           {user && <Sidebar />}
-          <div className={`${user ? 'ml-64' : ''} w-full`}>
+          <div className="w-full">
             <Routes>
               <Route path="/" element={!user ? <Home /> : <Navigate to="/dashboard" />} />
               <Route path="/login" element={!user ? <Login /> : <Navigate to="/dashboard" />} />
               <Route path="/signup" element={!user ? <Signup /> : <Navigate to="/dashboard" />} />
-              <Route path="/dashboard" element={user ? <Dashboard /> : <Navigate to="/login" />} />
-              <Route path="/account" element={user ? <ManageAccount /> : <Navigate to="/login" />} />
+              <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+              <Route path="/rooms" element={<ProtectedRoute><Rooms /></ProtectedRoute>} />
+              <Route path="/contributors" element={<ProtectedRoute><Contributors /></ProtectedRoute>} />
+              <Route path="/templates" element={<ProtectedRoute><Templates /></ProtectedRoute>} />
+              <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
+              <Route path="/account" element={<ProtectedRoute><ManageAccount /></ProtectedRoute>} />
               <Route path="*" element={<Navigate to={user ? "/dashboard" : "/"} />} />
             </Routes>
           </div>

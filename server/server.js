@@ -3,12 +3,25 @@ require('dotenv').config()
 const express = require('express')
 const mongoose = require("mongoose")
 const cors = require('cors')
-
+const http = require("http")
 
 const { authRoutes, roomRoutes, fileRoutes, chatRoutes, userRoutes } = require("./routes");
 
 // express app
 const app = express()
+const server = http.createServer(app);
+
+// socket.io setup
+const io = new Server(server, {
+    cors : {
+        origin : "http://localhost:5173",
+        methods : ["GET", "POST"]
+    }
+})
+
+//attach socket handler
+const socketHandler = require("./socket")
+socketHandler(io);
 
 //middleware
 app.use(cors())  // Add this before your routes
