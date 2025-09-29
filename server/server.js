@@ -24,7 +24,9 @@ const socketHandler = require("./socket")
 socketHandler(io);
 
 //middleware
-app.use(cors())  // Add this before your routes
+app.use(cors())  
+
+
 app.use(express.json())
 app.use((req, res, next) => {
     console.log(req.path, req.method)
