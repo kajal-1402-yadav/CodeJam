@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Plus, Search, Users, Calendar, MoreVertical, Edit, Trash2, Copy, ExternalLink, Loader2, X } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import useAuthContext from "../hooks/useAuthContext";
+import { useNavigate } from "react-router-dom";
 
 const RoomCard = ({ room, onEdit, onDelete, onJoin, onCopy }) => {
   return (
@@ -51,6 +52,7 @@ const RoomCard = ({ room, onEdit, onDelete, onJoin, onCopy }) => {
 
 const Rooms = () => {
   const { user } = useAuthContext();
+  const navigate = useNavigate();
   const [rooms, setRooms] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -128,10 +130,13 @@ const Rooms = () => {
   };
 
   const handleJoinRoom = (room) => {
-    console.log("Joining room:", room.name);
-    // Navigate to room or implement join logic
-    // For now, just show an alert
-    alert(`Joining room: ${room.name}`);
+    if (room?._id) {
+      navigate(`/room/${room._id}`);
+    } else {
+      console.error('Invalid room data:', room);
+      // Optionally show an error message to the user
+      setError('Failed to join room: Invalid room data');
+    }
   };
 
   const handleEditRoom = (room) => {

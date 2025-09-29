@@ -6,6 +6,7 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Dashboard from "./pages/Dashboard";
 import Rooms from "./pages/Rooms";
+import RoomEditor from "./pages/RoomEditor";
 import Contributors from "./pages/Contributors";
 import Templates from "./pages/Templates";
 import Notifications from "./pages/Notifications";
@@ -27,6 +28,7 @@ function App() {
               <Route path="/signup" element={!user ? <Signup /> : <Navigate to="/dashboard" />} />
               <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
               <Route path="/rooms" element={<ProtectedRoute><Rooms /></ProtectedRoute>} />
+              <Route path="/room/:id" element={<ProtectedRoute><RoomEditor /></ProtectedRoute>} />
               <Route path="/contributors" element={<ProtectedRoute><Contributors /></ProtectedRoute>} />
               <Route path="/templates" element={<ProtectedRoute><Templates /></ProtectedRoute>} />
               <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
