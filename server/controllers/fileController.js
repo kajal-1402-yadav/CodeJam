@@ -4,32 +4,40 @@ const mongoose = require("mongoose");
 
 // upload a new file in a room
 const uploadFile = async (req, res) => {
-    try {
-        const { roomId } = req.params;
-        const { filename, content, uploadedBy } = req.body;
+  try {
+    const { roomId } = req.params;
+    const { filename, content, uploadedBy, language } = req.body;
 
-        if (!filename || !uploadedBy) {
-            return res.status(400).json({ error: "Filename and uploadedBy are required" });
-        }
-
-        if (!mongoose.Types.ObjectId.isValid(roomId)) {
-            return res.status(400).json({ error: "Invalid room ID" });
-        }
-        if (!mongoose.Types.ObjectId.isValid(uploadedBy)) {
-            return res.status(400).json({ error: "Invalid uploadedBy ID" });
-        }
-
-        const file = await File.create({
-            room: roomId,
-            filename,
-            content: content || '',
-            uploadedBy
-        });
-
-        res.status(201).json(file);
-    } catch (error) {
-        res.status(400).json({ error: error.message });
+    if (!filename || !uploadedBy || !language) {
+      return res.status(400).json({ error: "Filename, language and uploadedBy are required" });
     }
+
+    if (!mongoose.Types.ObjectId.isValid(roomId)) {
+      return res.status(400).json({ error: "Invalid room ID" });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(uploadedBy)) {
+      return res.status(400).json({ error: "Invalid uploadedBy ID" });
+    }
+
+    // simple allowed list to avoid junk values
+    const allowedLanguages = ["javascript", "python", "java", "c", "cpp", "typescript"];
+    if (!allowedLanguages.includes(language)) {
+      return res.status(400).json({ error: `Invalid language. Allowed: ${allowedLanguages.join(", ")}` });
+    }
+
+    const file = await File.create({
+      room: roomId,
+      filename,
+      content: content || "",
+      uploadedBy,
+      language
+    });
+
+    res.status(201).json(file);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
 };
 
 // get all files in a room
@@ -150,6 +158,8 @@ const deleteFile = async (req, res) => {
         res.status(400).json({ error: error.message });
     }
 };
+
+
 
 module.exports = {
     uploadFile,
