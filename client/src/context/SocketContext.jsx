@@ -7,7 +7,21 @@ export const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
 
   useEffect(() => {
+    // Get user data for authentication
+    const userData = localStorage.getItem('user');
+    let authToken = null;
+
+    if (userData) {
+      try {
+        const user = JSON.parse(userData);
+        authToken = user.token;
+      } catch (error) {
+        console.error('Error parsing user data:', error);
+      }
+    }
+
     const s = io(import.meta.env.VITE_API_URL || "http://localhost:4000", {
+      auth: authToken ? { token: authToken } : {},
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
