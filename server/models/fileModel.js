@@ -16,6 +16,11 @@ const fileSchema = new Schema({
         type: String,
         default: ''
     },
+    language: { 
+    type: String, 
+    enum: ["javascript", "python", "java", "c", "cpp", "typescript"], 
+    required: true 
+  },
     uploadedBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',

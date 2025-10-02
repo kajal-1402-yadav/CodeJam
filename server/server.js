@@ -6,7 +6,7 @@ const cors = require('cors')
 const http = require("http")
 const { Server } = require('socket.io');
 
-const { authRoutes, roomRoutes, fileRoutes, chatRoutes, userRoutes } = require("./routes");
+const { authRoutes, roomRoutes, fileRoutes, chatRoutes, userRoutes, executeRoutes } = require("./routes");
 
 // express app
 const app = express()
@@ -40,6 +40,7 @@ app.use('/api/rooms', chatRoutes)
 app.use('/api/rooms', fileRoutes)
 app.use('/api/rooms', roomRoutes)
 app.use('/api/users', userRoutes)
+app.use('/api', executeRoutes)
 
 //connect to db
 mongoose.connect(process.env.MONGO_URI)

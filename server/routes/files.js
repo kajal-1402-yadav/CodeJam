@@ -8,6 +8,11 @@ const {
     deleteFile
 } = require('../controllers/fileController');
 
+const requireAuth = require('../middleware/requireAuth');
+
+// All file routes require authentication
+router.use(requireAuth);
+
 // upload a new file in a room
 router.post('/:roomId/files', uploadFile);
 

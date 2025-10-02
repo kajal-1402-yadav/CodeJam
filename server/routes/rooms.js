@@ -9,6 +9,11 @@ const {
     deleteRoom
 } = require("../controllers/roomController")
 
+const requireAuth = require('../middleware/requireAuth')
+
+// All room routes require authentication
+router.use(requireAuth)
+
 // create a room
 router.post('/', createRoom)
 
