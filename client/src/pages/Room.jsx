@@ -28,9 +28,7 @@ export default function Room() {
 
   return (
     <div className="flex min-h-screen bg-[#1E1E1E] text-gray-200">
-      <Sidebar />
-
-      <main className="flex-1 p-0 ml-64">
+      <main className="flex-1 p-0">
         {/* VS Code-like title bar */}
         <div className="flex items-center justify-between h-11 px-4 border-b border-gray-800 bg-[#111111]">
           <div className="flex items-center gap-3 text-sm">

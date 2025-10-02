@@ -13,7 +13,14 @@ const RoomChat = ({ roomId }) => {
     if (!socket) return;
 
     // join room with user info
-    socket.emit("joinRoom", { roomId, user });
+    socket.emit("joinRoom", {
+      roomId,
+      user: {
+        _id: user._id,
+        email: user.email,
+        username: user.username
+      }
+    });
 
     // listen for messages
     socket.on("receiveMessage", (msg) => {
@@ -26,15 +33,26 @@ const RoomChat = ({ roomId }) => {
     });
 
     return () => {
-      socket.emit("leaveRoom", { roomId, user });
+      socket.emit("leaveRoom", {
+        roomId,
+        user: {
+          _id: user._id,
+          email: user.email,
+          username: user.username
+        }
+      });
       socket.off("receiveMessage");
       socket.off("roomUsers");
     };
   }, [socket, roomId, user]);
 
   const sendMessage = () => {
-    if (input.trim() && socket) {
-      socket.emit("sendMessage", { roomId, sender: user.email, message: input });
+    if (input.trim() && socket && user) {
+      socket.emit("sendMessage", {
+        roomId,
+        message: input,
+        sender: { _id: user._id, username: user.username }
+      });
       setInput("");
     }
   };
@@ -44,7 +62,9 @@ const RoomChat = ({ roomId }) => {
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
         {messages.map((m, i) => (
           <div key={i} className="bg-[#111111] border border-gray-800 rounded-lg p-3">
-            <div className="text-xs text-gray-500 mb-1">{m.sender}</div>
+            <div className="text-xs text-gray-500 mb-1">
+              {m.sender?.username || m.sender?.email || 'Unknown'}
+            </div>
             <div className="text-gray-200">{m.message}</div>
           </div>
         ))}
