@@ -132,31 +132,45 @@ export default function RoomEditor() {
   }, [contextMenu]);
 
   // Handle copying room link
-  const handleCopyRoomLink = async () => {
-    const roomLink = `${window.location.origin}/room/${roomId}`;
+  const handleCopyRoomLink = (e) => {
+    e?.preventDefault();
+    
+    // Get just the room ID (in case roomId contains the full URL)
+    const roomIdOnly = roomId.split('/').pop();
+    
+    // Create a temporary input element
+    const tempInput = document.createElement('input');
+    tempInput.value = roomIdOnly; // Use only the room ID
+    document.body.appendChild(tempInput);
+    
+    // Select and copy the text
+    tempInput.select();
+    tempInput.setSelectionRange(0, 99999); // For mobile devices
+    
     try {
-      await navigator.clipboard.writeText(roomLink);
-      setCopied(true);
-      setShowToast(true);
-      setTimeout(() => {
-        setCopied(false);
-        setShowToast(false);
-      }, 3000);
+      // Try using the modern clipboard API first
+      navigator.clipboard.writeText(roomIdOnly).then(() => {
+        setCopied(true);
+        setShowToast(true);
+        setTimeout(() => {
+          setCopied(false);
+          setShowToast(false);
+        }, 3000);
+      }).catch(err => {
+        // Fallback for when clipboard API fails
+        document.execCommand('copy');
+        setCopied(true);
+        setShowToast(true);
+        setTimeout(() => {
+          setCopied(false);
+          setShowToast(false);
+        }, 3000);
+      });
     } catch (err) {
-      console.error('Failed to copy room link:', err);
-      // Fallback for older browsers
-      const textArea = document.createElement('textarea');
-      textArea.value = roomLink;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      setCopied(true);
-      setShowToast(true);
-      setTimeout(() => {
-        setCopied(false);
-        setShowToast(false);
-      }, 3000);
+      console.error('Failed to copy room ID:', err);
+    } finally {
+      // Clean up
+      document.body.removeChild(tempInput);
     }
   };
 
@@ -971,12 +985,30 @@ export default function RoomEditor() {
               </p>
 
               <div className="flex items-center gap-2 p-3 bg-[#0f0f0f] border border-gray-700 rounded-lg">
-                <input
-                  type="text"
-                  readOnly
-                  value={`${window.location.origin}/room/${roomId}`}
-                  className="flex-1 bg-transparent text-gray-300 text-sm focus:outline-none"
-                />
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    readOnly
+                    value={roomId}
+                    onFocus={(e) => {
+                      e.target.select();
+                      e.target.setSelectionRange(0, roomId.length);
+                    }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      const roomIdOnly = roomId.split('/').pop();
+                      const tempInput = document.createElement('input');
+                      tempInput.value = roomIdOnly;
+                      document.body.appendChild(tempInput);
+                      tempInput.select();
+                      document.execCommand('copy');
+                      document.body.removeChild(tempInput);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }}
+                    className="w-full bg-transparent text-gray-300 text-sm focus:outline-none"
+                  />
+                </div>
                 <button
                   onClick={handleCopyRoomLink}
                   className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded transition-colors ${
