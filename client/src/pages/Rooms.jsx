@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Search, Users, Calendar, MoreVertical, Edit, Trash2, Copy, ExternalLink, Loader2, X } from "lucide-react";
+import { Plus, Search, Users, Calendar, MoreVertical, Edit, Trash2, Copy, ExternalLink, Loader2, X, Link as LinkIcon, Check } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import useAuthContext from "../hooks/useAuthContext";
 import { useNavigate } from "react-router-dom";
@@ -61,6 +61,14 @@ const Rooms = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [newRoomName, setNewRoomName] = useState("");
 
+  // Join room state
+  const [showJoinModal, setShowJoinModal] = useState(false);
+  const [joinRoomInput, setJoinRoomInput] = useState("");
+  const [isJoining, setIsJoining] = useState(false);
+
+  // Toast state for copy notifications
+  const [showToast, setShowToast] = useState(false);
+
   // Fetch rooms from backend
   useEffect(() => {
     fetchRooms();
@@ -107,8 +115,7 @@ const Rooms = () => {
           'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify({
-          name: newRoomName.trim(),
-          createdBy: user._id
+          name: newRoomName.trim()
         })
       });
 
@@ -134,7 +141,6 @@ const Rooms = () => {
       navigate(`/room/${room._id}`);
     } else {
       console.error('Invalid room data:', room);
-      // Optionally show an error message to the user
       setError('Failed to join room: Invalid room data');
     }
   };
@@ -145,6 +151,43 @@ const Rooms = () => {
     const newName = prompt("Enter new room name:", room.name);
     if (newName && newName.trim() !== room.name) {
       updateRoom(room._id, { name: newName.trim() });
+    }
+  };
+
+  const handleJoinRoomById = async (e) => {
+    e.preventDefault();
+    if (!joinRoomInput.trim()) return;
+
+    setIsJoining(true);
+    try {
+      // Extract room ID from link or use input directly
+      let roomId = joinRoomInput.trim();
+
+      // Handle different input formats
+      if (roomId.includes('/room/')) {
+        // Extract ID from URL format: /room/{id}
+        const match = roomId.match(/\/room\/([a-f\d]{24})/i);
+        if (match) {
+          roomId = match[1];
+        } else {
+          throw new Error('Invalid room link format');
+        }
+      }
+
+      // Validate MongoDB ObjectId format (24 hex characters)
+      if (!/^[a-f\d]{24}$/i.test(roomId)) {
+        throw new Error('Invalid room ID format');
+      }
+
+      // Navigate to the room
+      navigate(`/room/${roomId}`);
+      setShowJoinModal(false);
+      setJoinRoomInput("");
+    } catch (error) {
+      console.error('Error joining room:', error);
+      setError(error.message || 'Failed to join room');
+    } finally {
+      setIsJoining(false);
     }
   };
 
@@ -199,9 +242,21 @@ const Rooms = () => {
 
   const handleCopyRoomLink = (room) => {
     const roomLink = `${window.location.origin}/room/${room._id}`;
-    navigator.clipboard.writeText(roomLink);
-    // You could add a toast notification here
-    alert('Room link copied to clipboard!');
+    navigator.clipboard.writeText(roomLink).then(() => {
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 3000);
+    }).catch((err) => {
+      console.error('Failed to copy room link:', err);
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = roomLink;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 3000);
+    });
   };
 
   if (isLoading) {
@@ -247,7 +302,13 @@ const Rooms = () => {
                 </button>
               )}
             </div>
-            <button 
+            <button
+              onClick={() => setShowJoinModal(true)}
+              className="rounded-xl bg-gray-600 px-6 py-3 text-base font-bold text-white hover:bg-gray-700 transition-colors inline-flex items-center gap-2"
+            >
+              <LinkIcon size={16} /> Join Room
+            </button>
+            <button
               onClick={() => setShowCreateModal(true)}
               className="rounded-xl bg-[#A78BFA] px-6 py-3 text-base font-bold text-[#1E1E1E] shadow-lg shadow-[#A78BFA]/20 hover:bg-[#A78BFA]/90 transition-colors inline-flex items-center gap-2"
             >
@@ -360,40 +421,46 @@ const Rooms = () => {
           )}
         </section>
 
-        {/* Create Room Modal */}
-        {showCreateModal && (
+        {/* Join Room Modal */}
+        {showJoinModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
             <div className="bg-[#1E1E1E] rounded-xl p-6 w-full max-w-md mx-4 border border-gray-800">
-              <h3 className="text-xl font-bold text-white mb-4">Create New Room</h3>
-              <form onSubmit={handleCreateRoom}>
+              <h3 className="text-xl font-bold text-white mb-4">Join Room</h3>
+              <form onSubmit={handleJoinRoomById}>
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Room Name
+                    Room Link or ID
                   </label>
                   <input
                     type="text"
-                    value={newRoomName}
-                    onChange={(e) => setNewRoomName(e.target.value)}
+                    value={joinRoomInput}
+                    onChange={(e) => setJoinRoomInput(e.target.value)}
                     className="w-full px-4 py-3 rounded-lg bg-[#1E1E1E] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#A78BFA] focus:border-transparent"
-                    placeholder="Enter room name"
+                    placeholder="Paste room link or enter room ID"
                     required
                   />
+                  <p className="text-xs text-gray-400 mt-2">
+                    You can paste a full room link (e.g., https://yourapp.com/room/1234567890abcdef) or just the room ID.
+                  </p>
                 </div>
                 <div className="flex gap-3">
                   <button
                     type="button"
-                    onClick={() => setShowCreateModal(false)}
+                    onClick={() => {
+                      setShowJoinModal(false);
+                      setJoinRoomInput("");
+                    }}
                     className="flex-1 px-4 py-3 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700 transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    disabled={isCreating || !newRoomName.trim()}
+                    disabled={isJoining || !joinRoomInput.trim()}
                     className="flex-1 px-4 py-3 rounded-lg bg-[#A78BFA] text-[#1E1E1E] font-semibold hover:bg-[#A78BFA]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
-                    {isCreating && <Loader2 className="animate-spin" size={16} />}
-                    {isCreating ? 'Creating...' : 'Create Room'}
+                    {isJoining && <Loader2 className="animate-spin" size={16} />}
+                    {isJoining ? 'Joining...' : 'Join Room'}
                   </button>
                 </div>
               </form>
@@ -401,6 +468,14 @@ const Rooms = () => {
           </div>
         )}
       </main>
+
+      {/* Toast Notification */}
+      {showToast && (
+        <div className="fixed top-4 right-4 bg-green-600 text-white px-4 py-3 rounded-lg shadow-lg z-50 flex items-center gap-2">
+          <Check size={16} />
+          Room link copied to clipboard!
+        </div>
+      )}
     </div>
   );
 };

@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'http://localhost:4000', // Update with your backend URL
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:4000',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -28,5 +28,16 @@ api.interceptors.request.use(
     return Promise.reject(error);
   }
 );
+
+// Utility function to generate proper room URLs
+export const generateRoomUrl = (roomId) => {
+  const baseUrl = import.meta.env.VITE_APP_URL || window.location.origin;
+  return `${baseUrl}/room/${roomId}`;
+};
+
+// Utility function to generate room share links (just the ID for better portability)
+export const generateRoomShareLink = (roomId) => {
+  return roomId; // Just return the ID, as it's more portable across environments
+};
 
 export default api;

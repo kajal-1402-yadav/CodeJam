@@ -4,14 +4,10 @@ const mongoose = require("mongoose");
 //create a room
 const createRoom = async (req, res) => {
     try {
-        const { name, createdBy, participants } = req.body;
+        const { name, participants } = req.body;
 
-        if (!name || !createdBy) {
-            return res.status(400).json({ error: "Name and createdBy are required" });
-        }
-
-        if (!mongoose.Types.ObjectId.isValid(createdBy)) {
-            return res.status(400).json({ error: "Invalid createdBy ID" });
+        if (!name) {
+            return res.status(400).json({ error: "Name is required" });
         }
 
         if (participants && !Array.isArray(participants)) {
@@ -30,7 +26,7 @@ const createRoom = async (req, res) => {
 
         const room = await Room.create({
             name,
-            createdBy,
+            createdBy: req.user._id, // Automatically set from authenticated user
             participants: participants || []
         });
 
@@ -41,11 +37,11 @@ const createRoom = async (req, res) => {
     }
 }
 
-// get all rooms
+// get all rooms (only rooms created by the current user)
 const getRooms = async (req, res) => {
 
     try {
-        const rooms = await Room.find().populate('createdBy participants', 'name email');
+        const rooms = await Room.find({ createdBy: req.user._id }).populate('createdBy participants', 'name email');
         res.status(200).json(rooms);
     }
     catch (error) {
@@ -78,6 +74,17 @@ const updateRoom = async (req, res) => {
             return res.status(400).json({ error: "Invalid room ID" });
         }
 
+        // Find the room first to check ownership
+        const room = await Room.findById(req.params.roomId);
+        if (!room) {
+            return res.status(404).json({ error: 'Room not found' });
+        }
+
+        // Check if the current user is the creator of the room
+        if (room.createdBy.toString() !== req.user._id.toString()) {
+            return res.status(403).json({ error: 'Not authorized to update this room' });
+        }
+
         delete req.body.createdBy;
 
         const updatedRoom = await Room.findByIdAndUpdate(
@@ -86,9 +93,6 @@ const updateRoom = async (req, res) => {
             { new: true, runValidators: true }
         ).populate('createdBy participants', 'name email');
 
-        if (!updatedRoom) {
-            return res.status(404).json({ error: 'Room not found' });
-        }
         res.status(200).json(updatedRoom);
     }
     catch (error) {
@@ -100,11 +104,19 @@ const updateRoom = async (req, res) => {
 const deleteRoom = async (req, res) => {
 
     try {
-        const deletedRoom = await Room.findByIdAndDelete(req.params.roomId);
-
-        if (!deletedRoom) {
+        // Find the room first to check ownership
+        const room = await Room.findById(req.params.roomId);
+        if (!room) {
             return res.status(404).json({ error: 'Room not found' });
         }
+
+        // Check if the current user is the creator of the room
+        if (room.createdBy.toString() !== req.user._id.toString()) {
+            return res.status(403).json({ error: 'Not authorized to delete this room' });
+        }
+
+        const deletedRoom = await Room.findByIdAndDelete(req.params.roomId);
+
         res.status(200).json({ message: 'Room deleted successfully' });
     } catch (error) {
         res.status(400).json({ error: error.message });
