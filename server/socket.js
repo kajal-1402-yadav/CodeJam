@@ -14,32 +14,43 @@ const debounce = (func, delay) => {
 
 // Store debounced save functions for each file
 const debouncedSaveFunctions = {};
-
 const socketHandler = (io) => {
     io.on("connection", (socket) => {
         console.log("Client Connected : ", socket.id);
 
         // joining a room
-        socket.on("joinRoom", ({ roomId, user }) => {
-            socket.join(roomId);
+        socket.on("joinRoom", async ({ roomId, user }) => {
+            try {
+                socket.join(roomId);
 
-            if (!roomUsers[roomId]) {
-                roomUsers[roomId] = new Set();
-            }
-            if (user && user.email) {
-                roomUsers[roomId].add(user.email);
-                console.log(`User ${user.email} (${socket.id}) joined room ${roomId}`);
-            }
+                if (!roomUsers[roomId]) {
+                    roomUsers[roomId] = new Set();
+                }
+                if (user && user.email) {
+                    roomUsers[roomId].add(user.email);
+                    console.log(`User ${user.email} (${socket.id}) joined room ${roomId}`);
+                }
 
-            // broadcast updated user list
-            io.to(roomId).emit("roomUsers", Array.from(roomUsers[roomId]));
+                // Send chat history to the newly joined user
+                const chatHistory = await Chat.find({ room: roomId })
+                    .sort({ createdAt: 1 })
+                    .populate('sender', 'username email _id')
+                    .lean();
+
+                // Send the history only to the joining user
+                socket.emit('chatHistory', chatHistory);
+
+                // Broadcast updated user list to all users in the room
+                io.to(roomId).emit("roomUsers", Array.from(roomUsers[roomId]));
+            } catch (error) {
+                console.error('Error in joinRoom:', error);
+            }
         })
 
         // leaving a room
         socket.on("leaveRoom", ({ roomId, user }) => {
             if (roomUsers[roomId]) {
                 roomUsers[roomId].delete(user.email);
-                io.to(roomId).emit("roomUsers", Array.from(roomUsers[roomId]));
             }
             socket.leave(roomId);
             console.log(` ${user.email} left room ${roomId}`);
@@ -91,7 +102,38 @@ const socketHandler = (io) => {
             socket.to(roomId).emit('fileCreated', file);
         });
 
-        //disconnect
+        // Handle message updates
+        socket.on("updateMessage", async (updatedMessage) => {
+            try {
+                const chat = await Chat.findByIdAndUpdate(
+                    updatedMessage._id,
+                    { 
+                        message: updatedMessage.message,
+                        isEdited: true,
+                        updatedAt: new Date()
+                    },
+                    { new: true }
+                ).populate('sender', 'username email _id');
+                
+                if (chat) {
+                    io.to(updatedMessage.roomId).emit("messageUpdated", chat);
+                }
+            } catch (error) {
+                console.error("Error updating message:", error);
+            }
+        });
+
+        // Handle message deletion
+        socket.on("deleteMessage", async ({ messageId, roomId }) => {
+            try {
+                await Chat.findByIdAndDelete(messageId);
+                io.to(roomId).emit("messageDeleted", messageId);
+            } catch (error) {
+                console.error("Error deleting message:", error);
+            }
+        });
+
+        // Disconnect
         socket.on("disconnect", () => {
             console.log("Client disconnected : ", socket.id);
         })

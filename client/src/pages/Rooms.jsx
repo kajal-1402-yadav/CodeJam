@@ -239,24 +239,32 @@ const Rooms = () => {
       setError(error.message);
     }
   };
-
-  const handleCopyRoomLink = (room) => {
-    const roomLink = `${window.location.origin}/room/${room._id}`;
-    navigator.clipboard.writeText(roomLink).then(() => {
+  const handleCopyRoomLink = async (room) => {
+    const roomId = room._id;
+    
+    // Create a temporary input element
+    const tempInput = document.createElement('input');
+    tempInput.value = roomId;
+    document.body.appendChild(tempInput);
+    
+    // Select and copy the text
+    tempInput.select();
+    tempInput.setSelectionRange(0, 99999); // For mobile devices
+    
+    try {
+      // Try using the modern clipboard API first
+      await navigator.clipboard.writeText(roomId);
       setShowToast(true);
-      setTimeout(() => setShowToast(false), 3000);
-    }).catch((err) => {
-      console.error('Failed to copy room link:', err);
-      // Fallback for older browsers
-      const textArea = document.createElement('textarea');
-      textArea.value = roomLink;
-      document.body.appendChild(textArea);
-      textArea.select();
+      setTimeout(() => setShowToast(false), 2000);
+    } catch (err) {
+      // Fallback for when clipboard API fails
       document.execCommand('copy');
-      document.body.removeChild(textArea);
       setShowToast(true);
-      setTimeout(() => setShowToast(false), 3000);
-    });
+      setTimeout(() => setShowToast(false), 2000);
+    } finally {
+      // Clean up
+      document.body.removeChild(tempInput);
+    }
   };
 
   if (isLoading) {
@@ -420,6 +428,51 @@ const Rooms = () => {
             </div>
           )}
         </section>
+
+        {/* Create Room Modal */}
+        {showCreateModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-[#1E1E1E] rounded-xl p-6 w-full max-w-md mx-4 border border-gray-800">
+              <h3 className="text-xl font-bold text-white mb-4">Create New Room</h3>
+              <form onSubmit={handleCreateRoom}>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Room Name
+                  </label>
+                  <input
+                    type="text"
+                    value={newRoomName}
+                    onChange={(e) => setNewRoomName(e.target.value)}
+                    className="w-full px-4 py-3 rounded-lg bg-[#1E1E1E] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#A78BFA] focus:border-transparent"
+                    placeholder="Enter room name"
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCreateModal(false);
+                      setNewRoomName("");
+                    }}
+                    className="flex-1 px-4 py-3 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isCreating || !newRoomName.trim()}
+                    className="flex-1 px-4 py-3 rounded-lg bg-[#A78BFA] text-[#1E1E1E] font-semibold hover:bg-[#A78BFA]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isCreating && <Loader2 className="animate-spin" size={16} />}
+                    {isCreating ? 'Creating...' : 'Create Room'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {/* Join Room Modal */}
         {showJoinModal && (
