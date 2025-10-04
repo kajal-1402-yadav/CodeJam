@@ -6,7 +6,7 @@ const cors = require('cors')
 const http = require("http")
 const { Server } = require('socket.io');
 
-const { authRoutes, roomRoutes, fileRoutes, chatRoutes, userRoutes, executeRoutes } = require("./routes");
+const { authRoutes, roomRoutes, fileRoutes, chatRoutes, userRoutes, executeRoutes, activityRoutes } = require("./routes");
 
 // express app
 const app = express()
@@ -25,7 +25,10 @@ const socketHandler = require("./socket")
 socketHandler(io);
 
 //middleware
-app.use(cors())  
+app.use(cors({
+    origin: ["http://localhost:5173", "http://localhost:3000"],
+    credentials: true
+}))  
 
 
 app.use(express.json())
@@ -41,6 +44,7 @@ app.use('/api/rooms', fileRoutes)
 app.use('/api/rooms', roomRoutes)
 app.use('/api/users', userRoutes)
 app.use('/api', executeRoutes)
+app.use('/api', activityRoutes)
 
 //connect to db
 mongoose.connect(process.env.MONGO_URI)

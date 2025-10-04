@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Users, FilePlus, Bell, Plus, Search, Loader2, X, ExternalLink, Copy, Edit, Trash2 } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import useAuthContext from "../hooks/useAuthContext";
+import { useNavigate } from "react-router-dom";
 
 const QuickStats = ({ rooms = [] }) => {
   const totalParticipants = rooms.reduce((sum, room) => sum + (room.participants?.length || 0), 0);
@@ -78,6 +79,7 @@ const RoomCard = ({ room, onJoin, onEdit, onDelete, onCopy }) => {
 
 const Dashboard = () => {
   const { user } = useAuthContext();
+  const navigate = useNavigate();
   const [rooms, setRooms] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -85,6 +87,14 @@ const Dashboard = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [newRoomName, setNewRoomName] = useState("");
+
+  // Toast state for copy notifications
+  const [showToast, setShowToast] = useState(false);
+
+  // Delete room state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [roomToDelete, setRoomToDelete] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Fetch rooms from backend
   useEffect(() => {
@@ -157,11 +167,12 @@ const Dashboard = () => {
   const handleJoinRoom = (room) => {
     console.log("Joining room:", room.name);
     // Navigate to room or implement join logic
-    alert(`Joining room: ${room.name}`);
+    navigate(`/room/${room._id}`);
   };
 
   const handleEditRoom = (room) => {
     console.log("Editing room:", room.name);
+    // For now, use prompt as placeholder - should be replaced with modal
     const newName = prompt("Enter new room name:", room.name);
     if (newName && newName.trim() !== room.name) {
       updateRoom(room._id, { name: newName.trim() });
@@ -192,13 +203,17 @@ const Dashboard = () => {
     }
   };
 
-  const handleDeleteRoom = async (room) => {
-    if (!window.confirm(`Are you sure you want to delete "${room.name}"? This action cannot be undone.`)) {
-      return;
-    }
+  const handleDeleteRoom = (room) => {
+    setRoomToDelete(room);
+    setShowDeleteModal(true);
+  };
+
+  const confirmDeleteRoom = async () => {
+    if (!roomToDelete) return;
 
     try {
-      const response = await fetch(`${import.meta.env?.VITE_API_URL || 'http://localhost:4000'}/api/rooms/${room._id}`, {
+      setIsDeleting(true);
+      const response = await fetch(`${import.meta.env?.VITE_API_URL || 'http://localhost:4000'}/api/rooms/${roomToDelete._id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${user.token}`
@@ -210,17 +225,22 @@ const Dashboard = () => {
         throw new Error(errorData.error || 'Failed to delete room');
       }
 
-      setRooms(prev => prev.filter(r => r._id !== room._id));
+      setRooms(prev => prev.filter(r => r._id !== roomToDelete._id));
+      setShowDeleteModal(false);
+      setRoomToDelete(null);
     } catch (error) {
       console.error('Error deleting room:', error);
       setError(error.message);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
   const handleCopyRoomLink = (room) => {
     const roomLink = `${window.location.origin}/room/${room._id}`;
     navigator.clipboard.writeText(roomLink);
-    alert('Room link copied to clipboard!');
+    setShowToast(true);
+    setTimeout(() => setShowToast(false), 2000);
   };
 
   if (isLoading) {
@@ -421,7 +441,49 @@ const Dashboard = () => {
             </div>
           </div>
         )}
+
+        {/* Delete Room Modal */}
+        {showDeleteModal && roomToDelete && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-[#1E1E1E] rounded-xl p-6 w-full max-w-md mx-4 border border-gray-800">
+              <h3 className="text-xl font-bold text-white mb-4">Delete Room</h3>
+              <p className="text-gray-300 mb-2">
+                Are you sure you want to delete <span className="text-white font-semibold">"{roomToDelete.name}"</span>?
+              </p>
+              <p className="text-gray-400 text-sm mb-6">This action cannot be undone.</p>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setRoomToDelete(null);
+                  }}
+                  className="flex-1 px-4 py-3 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700 transition-colors"
+                  disabled={isDeleting}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDeleteRoom}
+                  disabled={isDeleting}
+                  className="flex-1 px-4 py-3 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isDeleting && <Loader2 className="animate-spin" size={16} />}
+                  {isDeleting ? 'Deleting...' : 'Delete Room'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
+
+      {/* Toast Notification */}
+      {showToast && (
+        <div className="fixed top-4 right-4 bg-green-600 text-white px-4 py-3 rounded-lg shadow-lg z-50">
+          Room link copied to clipboard!
+        </div>
+      )}
     </div>
   );
 };

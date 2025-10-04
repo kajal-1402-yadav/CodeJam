@@ -1,12 +1,29 @@
-import { useState, useEffect } from "react";
-import { Plus, Search, Users, Calendar, MoreVertical, Edit, Trash2, Copy, ExternalLink, Loader2, X, Link as LinkIcon, Check } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Plus, Search, Users, Calendar, MoreVertical, Edit, Trash2, Copy, ExternalLink, Loader2, X, Link as LinkIcon, Check, Activity as ActivityIcon } from "lucide-react";
 import Sidebar from "../components/Sidebar";
+import RoomActivity from "../components/RoomActivity";
 import useAuthContext from "../hooks/useAuthContext";
 import { useNavigate } from "react-router-dom";
 
 const RoomCard = ({ room, onEdit, onDelete, onJoin, onCopy }) => {
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setShowMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   return (
-    <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-6 shadow-md hover:border-[#A78BFA]/50 transition-all duration-300 group">
+    <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-6 shadow-md hover:border-[#A78BFA]/50 transition-all duration-300 group relative">
       <div className="flex justify-between items-start mb-4">
         <div className="flex-1">
           <h3 className="text-white font-bold text-lg mb-2 group-hover:text-[#A78BFA] transition-colors">
@@ -15,7 +32,7 @@ const RoomCard = ({ room, onEdit, onDelete, onJoin, onCopy }) => {
           <div className="flex items-center gap-4 text-sm text-gray-400">
             <div className="flex items-center gap-1">
               <Users size={16} />
-              <span>{room.participants} participants</span>
+              <span>{Array.isArray(room.participants) ? room.participants.length : (room.participants || 0)} participants</span>
             </div>
             <div className="flex items-center gap-1">
               <Calendar size={16} />
@@ -23,22 +40,49 @@ const RoomCard = ({ room, onEdit, onDelete, onJoin, onCopy }) => {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button className="p-2 rounded-lg hover:bg-gray-700 transition-colors opacity-0 group-hover:opacity-100">
+        <div className="flex items-center gap-2 relative" ref={menuRef}>
+          <button
+            onClick={() => setShowMenu(!showMenu)}
+            className="p-2 rounded-lg hover:bg-gray-700 transition-colors opacity-0 group-hover:opacity-100"
+          >
             <MoreVertical size={16} className="text-gray-400" />
           </button>
+
+          {/* Dropdown Menu */}
+          {showMenu && (
+            <div className="absolute right-0 top-10 w-32 bg-[#2D2D2D] rounded-md shadow-lg z-10 border border-gray-700">
+              <button
+                onClick={() => {
+                  onEdit(room);
+                  setShowMenu(false);
+                }}
+                className="flex items-center w-full px-4 py-2 text-sm text-gray-200 hover:bg-gray-700"
+              >
+                <Edit size={14} className="mr-2" /> Rename
+              </button>
+              <button
+                onClick={() => {
+                  onDelete(room);
+                  setShowMenu(false);
+                }}
+                className="flex items-center w-full px-4 py-2 text-sm text-red-400 hover:bg-gray-700"
+              >
+                <Trash2 size={14} className="mr-2" /> Delete
+              </button>
+            </div>
+          )}
         </div>
       </div>
-      
+
       <div className="flex gap-3">
-        <button 
+        <button
           onClick={() => onJoin(room)}
           className="flex-1 rounded-lg bg-[#A78BFA] px-4 py-2 text-sm font-bold text-[#1E1E1E] hover:bg-[#A78BFA]/90 transition-colors flex items-center justify-center gap-2"
         >
           <ExternalLink size={16} />
           Join Room
         </button>
-        <button 
+        <button
           onClick={() => onCopy(room)}
           className="px-4 py-2 rounded-lg border border-gray-600 text-sm font-bold text-gray-300 hover:border-[#A78BFA] hover:text-white transition-colors flex items-center gap-2"
         >
@@ -65,6 +109,17 @@ const Rooms = () => {
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [joinRoomInput, setJoinRoomInput] = useState("");
   const [isJoining, setIsJoining] = useState(false);
+
+  // Delete room state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [roomToDelete, setRoomToDelete] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Rename room state
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [roomToRename, setRoomToRename] = useState(null);
+  const [renameInput, setRenameInput] = useState("");
+  const [isRenaming, setIsRenaming] = useState(false);
 
   // Toast state for copy notifications
   const [showToast, setShowToast] = useState(false);
@@ -146,11 +201,30 @@ const Rooms = () => {
   };
 
   const handleEditRoom = (room) => {
-    console.log("Editing room:", room.name);
-    // Implement edit room logic
-    const newName = prompt("Enter new room name:", room.name);
-    if (newName && newName.trim() !== room.name) {
-      updateRoom(room._id, { name: newName.trim() });
+    setRoomToRename(room);
+    setRenameInput(room.name);
+    setShowRenameModal(true);
+  };
+
+  const confirmRenameRoom = async () => {
+    if (!roomToRename || !renameInput.trim() || renameInput.trim() === roomToRename.name) {
+      setShowRenameModal(false);
+      setRoomToRename(null);
+      setRenameInput("");
+      return;
+    }
+
+    try {
+      setIsRenaming(true);
+      await updateRoom(roomToRename._id, { name: renameInput.trim() });
+      setShowRenameModal(false);
+      setRoomToRename(null);
+      setRenameInput("");
+    } catch (error) {
+      console.error('Error renaming room:', error);
+      setError(error.message);
+    } finally {
+      setIsRenaming(false);
     }
   };
 
@@ -215,13 +289,17 @@ const Rooms = () => {
     }
   };
 
-  const handleDeleteRoom = async (room) => {
-    if (!window.confirm(`Are you sure you want to delete "${room.name}"? This action cannot be undone.`)) {
-      return;
-    }
+  const handleDeleteRoom = (room) => {
+    setRoomToDelete(room);
+    setShowDeleteModal(true);
+  };
+
+  const confirmDeleteRoom = async () => {
+    if (!roomToDelete) return;
 
     try {
-      const response = await fetch(`${import.meta.env?.VITE_API_URL || 'http://localhost:4000'}/api/rooms/${room._id}`, {
+      setIsDeleting(true);
+      const response = await fetch(`${import.meta.env?.VITE_API_URL || 'http://localhost:4000'}/api/rooms/${roomToDelete._id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${user.token}`
@@ -233,24 +311,29 @@ const Rooms = () => {
         throw new Error(errorData.error || 'Failed to delete room');
       }
 
-      setRooms(prev => prev.filter(r => r._id !== room._id));
+      setRooms(prev => prev.filter(r => r._id !== roomToDelete._id));
+      setShowDeleteModal(false);
+      setRoomToDelete(null);
     } catch (error) {
       console.error('Error deleting room:', error);
       setError(error.message);
+    } finally {
+      setIsDeleting(false);
     }
   };
+
   const handleCopyRoomLink = async (room) => {
     const roomId = room._id;
-    
+
     // Create a temporary input element
     const tempInput = document.createElement('input');
     tempInput.value = roomId;
     document.body.appendChild(tempInput);
-    
+
     // Select and copy the text
     tempInput.select();
     tempInput.setSelectionRange(0, 99999); // For mobile devices
-    
+
     try {
       // Try using the modern clipboard API first
       await navigator.clipboard.writeText(roomId);
@@ -338,13 +421,13 @@ const Rooms = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-5 shadow-lg">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-gray-400 text-sm font-medium">Active Participants</p>
                 <p className="text-white text-3xl font-bold mt-1">
-                  {rooms.reduce((sum, room) => sum + room.participants, 0)}
+                  {rooms.reduce((sum, room) => sum + (Array.isArray(room.participants) ? room.participants.length : (room.participants || 0)), 0)}
                 </p>
               </div>
               <div className="p-3 rounded-full bg-green-500/10 text-green-500">
@@ -352,7 +435,7 @@ const Rooms = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-5 shadow-lg">
             <div className="flex items-center justify-between">
               <div>
@@ -370,7 +453,7 @@ const Rooms = () => {
         {error && (
           <div className="mb-6 p-4 bg-red-500/20 border border-red-500 text-red-100 rounded-lg">
             <p>Error: {error}</p>
-            <button 
+            <button
               onClick={() => setError(null)}
               className="mt-2 text-sm underline hover:text-red-200"
             >
@@ -391,11 +474,11 @@ const Rooms = () => {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {filteredRooms.map((room) => (
-              <RoomCard 
-                key={room._id} 
+              <RoomCard
+                key={room._id}
                 room={{
                   ...room,
-                  participants: room.participants?.length || 0,
+                  participants: Array.isArray(room.participants) ? room.participants.length : (room.participants || 0),
                   createdAt: new Date(room.createdAt).toLocaleDateString()
                 }}
                 onJoin={handleJoinRoom}
@@ -429,7 +512,13 @@ const Rooms = () => {
           )}
         </section>
 
-        {/* Create Room Modal */}
+        {/* Room History Section */}
+        <section className="mt-8 mb-8">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-2xl font-bold text-white">Room History</h2>
+          </div>
+          <RoomActivity showAllActivities={true} maxItems={10} />
+        </section>
         {showCreateModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
             <div className="bg-[#1E1E1E] rounded-xl p-6 w-full max-w-md mx-4 border border-gray-800">
@@ -474,28 +563,68 @@ const Rooms = () => {
           </div>
         )}
 
+        {/* Delete Room Modal */}
+        {showDeleteModal && roomToDelete && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-[#1E1E1E] rounded-xl p-6 w-full max-w-md mx-4 border border-gray-800">
+              <h3 className="text-xl font-bold text-white mb-4">Delete Room</h3>
+              <p className="text-gray-300 mb-2">
+                Are you sure you want to delete <span className="text-white font-semibold">"{roomToDelete.name}"</span>?
+              </p>
+              <p className="text-gray-400 text-sm mb-6">This action cannot be undone.</p>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setRoomToDelete(null);
+                  }}
+                  className="flex-1 px-4 py-3 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700 transition-colors"
+                  disabled={isDeleting}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDeleteRoom}
+                  disabled={isDeleting}
+                  className="flex-1 px-4 py-3 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isDeleting && <Loader2 className="animate-spin" size={16} />}
+                  {isDeleting ? 'Deleting...' : 'Delete Room'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Join Room Modal */}
         {showJoinModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
             <div className="bg-[#1E1E1E] rounded-xl p-6 w-full max-w-md mx-4 border border-gray-800">
               <h3 className="text-xl font-bold text-white mb-4">Join Room</h3>
+              <p className="text-gray-300 mb-2">
+                Enter a room ID or paste a room link to join an existing room.
+              </p>
+
               <form onSubmit={handleJoinRoomById}>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Room Link or ID
-                  </label>
+                <div className="mb-6">
                   <input
                     type="text"
                     value={joinRoomInput}
                     onChange={(e) => setJoinRoomInput(e.target.value)}
                     className="w-full px-4 py-3 rounded-lg bg-[#1E1E1E] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#A78BFA] focus:border-transparent"
-                    placeholder="Paste room link or enter room ID"
-                    required
+                    placeholder="Enter room ID or paste room link..."
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setShowJoinModal(false);
+                        setJoinRoomInput("");
+                      }
+                    }}
                   />
-                  <p className="text-xs text-gray-400 mt-2">
-                    You can paste a full room link (e.g., https://yourapp.com/room/1234567890abcdef) or just the room ID.
-                  </p>
                 </div>
+
                 <div className="flex gap-3">
                   <button
                     type="button"
@@ -504,6 +633,7 @@ const Rooms = () => {
                       setJoinRoomInput("");
                     }}
                     className="flex-1 px-4 py-3 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700 transition-colors"
+                    disabled={isJoining}
                   >
                     Cancel
                   </button>

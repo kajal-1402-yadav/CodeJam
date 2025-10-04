@@ -1,5 +1,6 @@
 const Room = require("../models/roomModel");
 const mongoose = require("mongoose");
+const Activity = require("../models/activityModel");
 
 //create a room
 const createRoom = async (req, res) => {
@@ -28,6 +29,32 @@ const createRoom = async (req, res) => {
             name,
             createdBy: req.user._id, // Automatically set from authenticated user
             participants: participants || []
+        });
+
+        // Create activity for room creation
+        const Activity = require('../models/activityModel');
+
+        // Generate enhanced description
+        const generateActivityDescription = (type, metadata, userName) => {
+          const { roomName } = metadata || {};
+          switch (type) {
+            case 'room_created':
+              return `${userName} created room "${roomName}"`;
+            case 'room_updated':
+              return `${userName} updated room "${roomName}"`;
+            case 'room_deleted':
+              return `${userName} deleted room "${roomName}"`;
+            default:
+              return `${userName} performed ${type}`;
+          }
+        };
+
+        await Activity.create({
+            room: room._id,
+            user: req.user._id,
+            type: 'room_created',
+            description: generateActivityDescription('room_created', { roomName: name }, req.user.username),
+            metadata: { roomName: name }
         });
 
         res.status(201).json(room);
@@ -93,6 +120,19 @@ const updateRoom = async (req, res) => {
             { new: true, runValidators: true }
         ).populate('createdBy participants', 'name email');
 
+        // Create activity for room update
+        const Activity = require('../models/activityModel');
+        await Activity.create({
+            room: req.params.roomId,
+            user: req.user._id,
+            type: 'room_updated',
+            description: `${req.user.username} updated room settings`,
+            metadata: {
+                roomName: updatedRoom.name,
+                updateDetails: 'room settings'
+            }
+        });
+
         res.status(200).json(updatedRoom);
     }
     catch (error) {
@@ -116,6 +156,18 @@ const deleteRoom = async (req, res) => {
         }
 
         const deletedRoom = await Room.findByIdAndDelete(req.params.roomId);
+
+        // Create activity for room deletion
+        const Activity = require('../models/activityModel');
+        await Activity.create({
+            room: req.params.roomId,
+            user: req.user._id,
+            type: 'room_deleted',
+            description: `${req.user.username} deleted the room`,
+            metadata: {
+                roomName: room.name
+            }
+        });
 
         res.status(200).json({ message: 'Room deleted successfully' });
     } catch (error) {

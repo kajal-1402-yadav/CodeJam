@@ -4,6 +4,7 @@ const fileRoutes = require("./files");
 const chatRoutes = require("./chats");
 const userRoutes = require("./users");
 const executeRoutes = require("./execute");
+const activityRoutes = require("./activities");
 
 module.exports = {
   authRoutes,
@@ -11,5 +12,6 @@ module.exports = {
   fileRoutes,
   chatRoutes,
   userRoutes,
-  executeRoutes
+  executeRoutes,
+  activityRoutes
 };

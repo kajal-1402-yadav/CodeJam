@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSocket } from "../context/SocketContext";
 import useAuthContext from "../hooks/useAuthContext";
-import { MoreVertical, Edit2, Trash2, Check, X } from "lucide-react";
+import { MoreVertical, Edit2, Trash2, Check, X, Users } from "lucide-react";
 
 const MessageMenu = ({ onEdit, onDelete, isOwner }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -60,6 +60,7 @@ const RoomChat = ({ roomId }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [users, setUsers] = useState([]);
+  const [notifications, setNotifications] = useState([]);
   const [editingMessage, setEditingMessage] = useState(null);
   const [editInput, setEditInput] = useState("");
   const messagesEndRef = useRef(null);
@@ -72,6 +73,8 @@ const RoomChat = ({ roomId }) => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  const [showParticipantsModal, setShowParticipantsModal] = useState(false);
 
   useEffect(() => {
     if (!socket) return;
@@ -91,7 +94,28 @@ const RoomChat = ({ roomId }) => {
       setMessages(history);
     };
 
+    // Listen for ephemeral notifications (temporary activities)
+    const handleUserJoined = (data) => {
+      setNotifications(prev => [...prev, {
+        id: Date.now(),
+        type: 'user_joined',
+        message: `${data.user} joined the room`,
+        timestamp: data.timestamp
+      }]);
+    };
+
+    const handleUserLeft = (data) => {
+      setNotifications(prev => [...prev, {
+        id: Date.now(),
+        type: 'user_left',
+        message: `${data.user} left the room`,
+        timestamp: data.timestamp
+      }]);
+    };
+
     socket.on('chatHistory', handleChatHistory);
+    socket.on('userJoinedNotification', handleUserJoined);
+    socket.on('userLeftNotification', handleUserLeft);
 
     // Listen for messages
     const handleNewMessage = (msg) => {
@@ -121,6 +145,11 @@ const RoomChat = ({ roomId }) => {
       setUsers(list);
     });
 
+    // Auto-remove notifications after 5 seconds
+    const notificationInterval = setInterval(() => {
+      setNotifications(prev => prev.filter(n => Date.now() - n.id < 5000));
+    }, 1000);
+
     // Clean up
     return () => {
       socket.emit("leaveRoom", {
@@ -136,6 +165,9 @@ const RoomChat = ({ roomId }) => {
       socket.off("messageDeleted", handleMessageDelete);
       socket.off("roomUsers");
       socket.off('chatHistory', handleChatHistory);
+      socket.off('userJoinedNotification', handleUserJoined);
+      socket.off('userLeftNotification', handleUserLeft);
+      clearInterval(notificationInterval);
     };
   }, [socket, roomId, user]);
 
@@ -196,6 +228,27 @@ const RoomChat = ({ roomId }) => {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Ephemeral Notifications */}
+      <div className="flex-shrink-0 p-4 space-y-2">
+        {notifications.map((notification) => (
+          <div
+            key={notification.id}
+            className={`px-3 py-2 rounded-lg text-sm text-white transition-all duration-300 ${
+              notification.type === 'user_joined'
+                ? 'bg-green-500/20 border border-green-500/30'
+                : 'bg-gray-500/20 border border-gray-500/30'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${
+                notification.type === 'user_joined' ? 'bg-green-500' : 'bg-gray-500'
+              }`} />
+              <span>{notification.message}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {messages.map((msg) => {
           const isCurrentUser = msg.sender?._id === user._id;
@@ -288,8 +341,87 @@ const RoomChat = ({ roomId }) => {
             Send
           </button>
         </div>
-        <div className="mt-2 text-xs text-gray-400">
-          {users.length} {users.length === 1 ? 'person' : 'people'} online
+        <div className="mt-2 flex items-center justify-between">
+          <span className="text-xs text-gray-400">
+            {users.length} {users.length === 1 ? 'person' : 'people'} online
+          </span>
+          <button
+            onClick={() => setShowParticipantsModal(true)}
+            className="text-xs text-[#A78BFA] hover:text-white flex items-center gap-1 transition-colors"
+          >
+            <Users size={12} />
+            View all
+          </button>
+        </div>
+      </div>
+
+      {/* Participants Modal */}
+      <ParticipantsModal
+        users={users}
+        isOpen={showParticipantsModal}
+        onClose={() => setShowParticipantsModal(false)}
+        currentUser={user}
+      />
+    </div>
+  );
+};
+
+// Participants Modal Component
+const ParticipantsModal = ({ users, isOpen, onClose, currentUser }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-[#1E1E1E] rounded-xl p-6 w-full max-w-md mx-4 border border-gray-800">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xl font-bold text-white">Room Participants</h3>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-white p-1 rounded-full hover:bg-gray-700 transition-colors"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="space-y-3 max-h-96 overflow-y-auto">
+          {users.length === 0 ? (
+            <p className="text-gray-400 text-center py-8">No participants online</p>
+          ) : (
+            users.map((userEmail, index) => {
+              const isCurrentUser = userEmail === currentUser?.email;
+              return (
+                <div
+                  key={index}
+                  className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
+                    isCurrentUser
+                      ? 'bg-[#A78BFA]/10 border-[#A78BFA]/30'
+                      : 'bg-[#2D2D2D] border-gray-700 hover:bg-gray-700/50'
+                  }`}
+                >
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${
+                    isCurrentUser
+                      ? 'bg-[#A78BFA] text-[#1E1E1E]'
+                      : 'bg-gray-600 text-white'
+                  }`}>
+                    {userEmail.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1">
+                    <p className={`font-medium ${isCurrentUser ? 'text-[#A78BFA]' : 'text-white'}`}>
+                      {userEmail}
+                      {isCurrentUser && <span className="text-xs text-gray-400 ml-2">(You)</span>}
+                    </p>
+                  </div>
+                  <div className={`w-2 h-2 rounded-full ${isCurrentUser ? 'bg-[#A78BFA]' : 'bg-green-500'}`} />
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-gray-700">
+          <p className="text-sm text-gray-400 text-center">
+            {users.length} {users.length === 1 ? 'participant' : 'participants'} online
+          </p>
         </div>
       </div>
     </div>
@@ -297,3 +429,4 @@ const RoomChat = ({ roomId }) => {
 };
 
 export default RoomChat;
+export { ParticipantsModal };
