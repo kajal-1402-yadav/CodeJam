@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Clock, User, FileText, MessageSquare, Plus, Edit, Trash2, Code, Users, Activity as ActivityIcon } from "lucide-react";
 import useAuthContext from "../hooks/useAuthContext";
+import { io } from "socket.io-client";
 
 const RoomActivity = ({ roomId, showAllActivities = false, maxItems = 5 }) => {
   const { user } = useAuthContext();
@@ -11,6 +12,25 @@ const RoomActivity = ({ roomId, showAllActivities = false, maxItems = 5 }) => {
   useEffect(() => {
     fetchActivities();
   }, [roomId, showAllActivities]);
+
+  // Socket connection for real-time room deletion updates
+  useEffect(() => {
+    if (!showAllActivities) return; // Only listen for room deletion events when showing all activities
+
+    console.log('Setting up socket connection for room activity updates');
+    const socket = io('http://localhost:4000');
+
+    // Listen for room deletion events and filter out activities from deleted rooms
+    socket.on('roomDeleted', ({ roomId: deletedRoomId, roomName }) => {
+      console.log(`Room "${roomName}" was deleted - filtering out its activities`);
+      setActivities(prev => prev.filter(activity => activity.room?._id !== deletedRoomId));
+    });
+
+    return () => {
+      console.log('Cleaning up room activity socket connection');
+      socket.disconnect();
+    };
+  }, [showAllActivities]); // Only re-run when showAllActivities changes
 
   const fetchActivities = async () => {
     try {
@@ -86,6 +106,10 @@ const RoomActivity = ({ roomId, showAllActivities = false, maxItems = 5 }) => {
     return `${Math.floor(diffInSeconds / 86400)}d ago`;
   };
 
+  const toTitleCase = (str) => {
+    return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+  };
+
   const displayActivities = activities
     .filter(activity => {
       // Only show permanent activities in history, not temporary ones
@@ -131,11 +155,18 @@ const RoomActivity = ({ roomId, showAllActivities = false, maxItems = 5 }) => {
   return (
     <div className="space-y-3">
       {displayActivities.map((activity) => (
-        <div key={activity._id} className="flex justify-between items-center p-4 rounded-lg bg-[#1E1E1E]/50 border border-gray-800">
-          <span className="text-white font-medium">{activity.description}</span>
-          <span className="text-gray-500 text-sm">
-            {formatTimeAgo(activity.createdAt)}
-          </span>
+        <div key={activity._id} className="p-4 rounded-lg bg-[#1E1E1E]/50 border border-gray-800">
+          <div className="flex justify-between items-start mb-2">
+            <span className="text-white font-medium">{toTitleCase(activity.description.replace(/ in \w+$/, ''))}</span>
+            <span className="text-gray-500 text-sm">
+              {formatTimeAgo(activity.createdAt)}
+            </span>
+          </div>
+          {activity.room && (
+            <div className="text-[#A78BFA] text-sm font-medium">
+              {activity.room.name}
+            </div>
+          )}
         </div>
       ))}
 

@@ -6,7 +6,7 @@ const mongoose = require("mongoose");
 const uploadFile = async (req, res) => {
   try {
     const { roomId } = req.params;
-    const { filename, content, uploadedBy, language } = req.body;
+    const { filename, content, uploadedBy, language, folder } = req.body;
 
     if (!filename || !uploadedBy || !language) {
       return res.status(400).json({ error: "Filename, language and uploadedBy are required" });
@@ -20,8 +20,20 @@ const uploadFile = async (req, res) => {
       return res.status(400).json({ error: "Invalid uploadedBy ID" });
     }
 
-    // simple allowed list to avoid junk values
-    const allowedLanguages = ["javascript", "python", "java", "c", "cpp", "typescript"];
+    // Allowed languages should mirror model enum
+    const allowedLanguages = [
+      "javascript",
+      "typescript",
+      "python",
+      "java",
+      "c",
+      "cpp",
+      "html",
+      "css",
+      "json",
+      "markdown",
+      "plaintext"
+    ];
     if (!allowedLanguages.includes(language)) {
       return res.status(400).json({ error: `Invalid language. Allowed: ${allowedLanguages.join(", ")}` });
     }
@@ -31,7 +43,8 @@ const uploadFile = async (req, res) => {
       filename,
       content: content || "",
       uploadedBy,
-      language
+      language,
+      folder: folder || null
     });
 
     res.status(201).json(file);

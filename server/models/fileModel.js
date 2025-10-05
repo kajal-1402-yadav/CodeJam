@@ -18,13 +18,18 @@ const fileSchema = new Schema({
     },
     language: { 
     type: String, 
-    enum: ["javascript", "python", "java", "c", "cpp", "typescript"], 
+    enum: ["javascript", "typescript", "python", "java", "c", "cpp", "html", "css", "json", "markdown", "plaintext"], 
     required: true 
   },
     uploadedBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
         required: true
+    },
+    folder: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Folder',
+        default: null
     }
 }, { timestamps: true })
 

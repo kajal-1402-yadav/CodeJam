@@ -6,7 +6,7 @@ const cors = require('cors')
 const http = require("http")
 const { Server } = require('socket.io');
 
-const { authRoutes, roomRoutes, fileRoutes, chatRoutes, userRoutes, executeRoutes, activityRoutes } = require("./routes");
+const { authRoutes, roomRoutes, fileRoutes, chatRoutes, folderRoutes, userRoutes, executeRoutes, activityRoutes } = require("./routes");
 
 // express app
 const app = express()
@@ -30,6 +30,10 @@ app.use(cors({
     credentials: true
 }))  
 
+app.use((req, res, next) => {
+    req.io = io; // Attach io instance to req object for easy access in controllers
+    next();
+});
 
 app.use(express.json())
 app.use((req, res, next) => {
@@ -41,6 +45,7 @@ app.use((req, res, next) => {
 app.use('/api/auth', authRoutes)
 app.use('/api/rooms', chatRoutes)
 app.use('/api/rooms', fileRoutes)
+app.use('/api/rooms', folderRoutes)
 app.use('/api/rooms', roomRoutes)
 app.use('/api/users', userRoutes)
 app.use('/api', executeRoutes)

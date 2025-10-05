@@ -7,7 +7,6 @@ import Signup from "./pages/Signup";
 import Dashboard from "./pages/Dashboard";
 import Rooms from "./pages/Rooms";
 import RoomEditor from "./pages/RoomEditor";
-import Room from "./pages/Room";
 import Contributors from "./pages/Contributors";
 import Templates from "./pages/Templates";
 import Notifications from "./pages/Notifications";

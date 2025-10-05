@@ -165,20 +165,20 @@ const generateActivityDescription = (type, metadata, userName) => {
 
   switch (type) {
     case 'file_created':
-      return `${userName} created file "${filename}" in ${roomName}`;
+      return `${userName} created file "${filename}"`;
     case 'file_edited':
-      return `${userName} edited file "${filename}" in ${roomName}`;
+      return `${userName} edited file "${filename}"`;
     case 'file_deleted':
-      return `${userName} deleted file "${filename}" in ${roomName}`;
+      return `${userName} deleted file "${filename}"`;
     case 'file_renamed':
-      return `${userName} renamed file "${oldName}" to "${newName}" in ${roomName}`;
+      return `${userName} renamed file "${oldName}" to "${newName}"`;
     case 'message_sent':
       // Show the actual message content
-      return `${userName} sent: "${message}" in ${roomName}`;
+      return `${userName} sent: "${message}"`;
     case 'code_executed':
       const status = exitCode === 0 ? 'successfully' : 'with errors';
       const timeInfo = executionTime ? ` in ${executionTime}ms` : '';
-      return `${userName} executed code "${filename || 'script'}" ${status}${timeInfo} in ${roomName}`;
+      return `${userName} executed code "${filename || 'script'}" ${status}${timeInfo}`;
     case 'room_created':
       return `${userName} created room "${roomName}"`;
     case 'room_deleted':

@@ -1,1049 +1,671 @@
-import React, { useState, useEffect, useRef } from "react";
-import { Link, useParams, useNavigate } from "react-router-dom";
-import { Editor } from "@monaco-editor/react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import Editor from "@monaco-editor/react";
 import {
-  FileCode2, Palette, FileJson, Globe, FileText, Folder, FolderOpen, File, Upload,
-  MessageSquare, Plus, Loader2, Play, Square, Eye, Code, MoreVertical, FilePlus, FolderPlus, Trash2,
-  Share2, Copy, Check, ExternalLink
+  MessageSquare,
+  ChevronRight,
+  ChevronLeft,
+  Save,
+  Plus,
+  File as FileIcon,
+  Folder as FolderIcon,
+  Play,
+  TerminalSquare,
+  Monitor,
+  Trash2,
+  X,
+  Send,
+  Upload,
+  Edit,
+  MoreVertical
 } from "lucide-react";
+import ContextMenu, { ContextMenuItem } from "../components/ContextMenu";
+import InlineForm from "../components/InlineForm";
 import api from "../utils/axiosConfig";
 import useAuthContext from "../hooks/useAuthContext";
-import RoomChat from "../components/RoomChat";
+import { useSocket } from "../context/SocketContext";
+
+const languageByFilename = (name) => {
+  const ext = name.split(".").pop()?.toLowerCase();
+  switch (ext) {
+    case "js": return "javascript";
+    case "ts": return "typescript";
+    case "py": return "python";
+    case "java": return "java";
+    case "c": return "c";
+    case "cpp": return "cpp";
+    case "html": return "html";
+    case "css": return "css";
+    case "json": return "json";
+    case "md": return "markdown";
+    default: return "plaintext";
+  }
+};
 
 export default function RoomEditor() {
-  const { user } = useAuthContext();
   const { id: roomId } = useParams();
+  const { user } = useAuthContext();
   const navigate = useNavigate();
+  const socket = useSocket();
 
-  // State
-  const [room, setRoom] = useState(null);
   const [files, setFiles] = useState([]);
-  const [activeFile, setActiveFile] = useState(null);
-  const [fileContent, setFileContent] = useState('');
-  const [messages, setMessages] = useState([]);
-  const [participants, setParticipants] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [isCreatingFile, setIsCreatingFile] = useState(false);
-  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
-  const [newFileName, setNewFileName] = useState('');
-  const [newFolderName, setNewFolderName] = useState('');
-  const [contextMenu, setContextMenu] = useState({ show: false, x: 0, y: 0, item: null });
-  const fileInputRef = useRef(null);
-  
-  // File system structure
-  const [fileSystem, setFileSystem] = useState({ 
-    name: 'root', 
-    type: 'folder', 
-    children: [],
-    path: ''
-  });
+  const [activeFileId, setActiveFileId] = useState(null);
+  const [folders, setFolders] = useState([]);
   const [expandedFolders, setExpandedFolders] = useState(new Set());
+  const [activeContent, setActiveContent] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
+  const [terminalLines, setTerminalLines] = useState([]);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState("");
+  const [contextMenu, setContextMenu] = useState(null);
+  const [editingItem, setEditingItem] = useState(null);
+  const [creatingIn, setCreatingIn] = useState(null);
+  const [room, setRoom] = useState(null);
+  const chatEndRef = useRef(null);
+  const didWelcome = useRef(false);
+  const editorRef = useRef(null);
 
-  // Code execution state
-  const [executionOutput, setExecutionOutput] = useState('');
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [executionError, setExecutionError] = useState('');
+  const activeFile = useMemo(() => files.find(f => f._id === activeFileId) || null, [files, activeFileId]);
 
-  // Preview state
-  const [isPreviewMode, setIsPreviewMode] = useState(false);
-  const [previewContent, setPreviewContent] = useState('');
+  useEffect(() => {
+    if (!socket || !user) return;
+    socket.emit("joinRoom", { roomId, user });
+    return () => {
+      socket.emit("leaveRoom", { roomId, user });
+    };
+  }, [socket, roomId, user]);
 
-  // Share modal state
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [showToast, setShowToast] = useState(false);
-
-  const API_URL = 'http://localhost:4000';
-
-  // Build file system structure from flat files array
-  const buildFileSystem = (files) => {
-    const root = { name: 'root', type: 'folder', children: [], path: '' };
-    
-    files.forEach(file => {
-      const pathParts = file.filename.split('/');
-      let current = root;
-      
-      for (let i = 0; i < pathParts.length; i++) {
-        const part = pathParts[i];
-        const isFile = i === pathParts.length - 1;
-        
-        if (isFile) {
-          current.children.push({
-            ...file,
-            name: part,
-            type: 'file',
-            path: pathParts.slice(0, -1).join('/')
-          });
-        } else {
-          let folder = current.children.find(child => child.name === part && child.type === 'folder');
-          if (!folder) {
-            folder = {
-              name: part,
-              type: 'folder',
-              children: [],
-              path: pathParts.slice(0, i + 1).join('/')
-            };
-            current.children.push(folder);
-            // Expand all folders by default
-            setExpandedFolders(prev => new Set(prev).add(folder.path));
-          }
-          current = folder;
-        }
+  useEffect(() => {
+    const load = async () => {
+      const [filesRes, foldersRes, roomRes] = await Promise.all([
+        api.get(`/api/rooms/${roomId}/files`),
+        api.get(`/api/rooms/${roomId}/folders`),
+        api.get(`/api/rooms/${roomId}`)
+      ]);
+      setFiles(filesRes.data);
+      setFolders(foldersRes.data);
+      setRoom(roomRes.data);
+      if (filesRes.data.length) {
+        setActiveFileId(filesRes.data[0]._id);
+        setActiveContent(filesRes.data[0].content || "");
       }
-    });
-    
-    return root;
-  };
+    };
+    load().catch(() => {});
+  }, [roomId]);
 
-  // Toggle folder expanded/collapsed
-  const toggleFolder = (folderPath) => {
-    setExpandedFolders(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(folderPath)) {
-        newSet.delete(folderPath);
+  useEffect(() => {
+    if (!socket) return;
+    const onFileUpdated = ({ fileId, newContent }) => {
+      setFiles(prev => prev.map(f => f._id === fileId ? { ...f, content: newContent } : f));
+      if (fileId === activeFileId) setActiveContent(newContent);
+    };
+    const onFileRenamed = ({ fileId, newName }) => {
+      setFiles(prev => prev.map(f => f._id === fileId ? { ...f, filename: newName } : f));
+    };
+    const onFileDeleted = ({ fileId }) => {
+      setFiles(prev => prev.filter(f => f._id !== fileId));
+      if (activeFileId === fileId) {
+        const next = files.find(f => f._id !== fileId);
+        setActiveFileId(next?._id || null);
+        setActiveContent(next?.content || "");
+      }
+    };
+    socket.on("fileUpdated", onFileUpdated);
+    socket.on("fileRenamed", onFileRenamed);
+    socket.on("fileDeleted", onFileDeleted);
+    return () => {
+      socket.off("fileUpdated", onFileUpdated);
+      socket.off("fileRenamed", onFileRenamed);
+      socket.off("fileDeleted", onFileDeleted);
+    };
+  }, [socket, activeFileId, files]);
+
+  // Chat socket integration
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleHistory = (history) => {
+      const list = history || [];
+      if (!didWelcome.current) {
+        didWelcome.current = true;
+        const welcome = {
+          _id: `welcome-${roomId}`,
+          sender: { username: "System" },
+          message: "Welcome to the room! Share files, edit code, and chat in real-time.",
+          createdAt: new Date().toISOString(),
+        };
+        setChatMessages([welcome, ...list]);
       } else {
-        newSet.add(folderPath);
-      }
-      return newSet;
-    });
-  };
-
-  // Handle context menu
-  const handleContextMenu = (e, item = null) => {
-    e.preventDefault();
-    setContextMenu({
-      show: true,
-      x: e.clientX,
-      y: e.clientY,
-      item
-    });
-  };
-
-  // Close context menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = () => {
-      if (contextMenu.show) {
-        setContextMenu({ ...contextMenu, show: false });
-      }
-    };
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
-  }, [contextMenu]);
-
-  // Handle copying room link
-  const handleCopyRoomLink = (e) => {
-    e?.preventDefault();
-    
-    // Get just the room ID (in case roomId contains the full URL)
-    const roomIdOnly = roomId.split('/').pop();
-    
-    // Create a temporary input element
-    const tempInput = document.createElement('input');
-    tempInput.value = roomIdOnly; // Use only the room ID
-    document.body.appendChild(tempInput);
-    
-    // Select and copy the text
-    tempInput.select();
-    tempInput.setSelectionRange(0, 99999); // For mobile devices
-    
-    try {
-      // Try using the modern clipboard API first
-      navigator.clipboard.writeText(roomIdOnly).then(() => {
-        setCopied(true);
-        setShowToast(true);
-        setTimeout(() => {
-          setCopied(false);
-          setShowToast(false);
-        }, 3000);
-      }).catch(err => {
-        // Fallback for when clipboard API fails
-        document.execCommand('copy');
-        setCopied(true);
-        setShowToast(true);
-        setTimeout(() => {
-          setCopied(false);
-          setShowToast(false);
-        }, 3000);
-      });
-    } catch (err) {
-      console.error('Failed to copy room ID:', err);
-    } finally {
-      // Clean up
-      document.body.removeChild(tempInput);
-    }
-  };
-
-  // Handle sharing room link
-  const handleShareRoom = () => {
-    setShowShareModal(true);
-  };
-
-  // Handle file upload
-  const handleFileUpload = async (e, folderPath = '') => {
-    const files = e.target.files;
-    if (!files.length) return;
-
-    const formData = new FormData();
-    for (let i = 0; i < files.length; i++) {
-      formData.append('files', files[i]);
-    }
-    formData.append('path', folderPath);
-
-    try {
-      const res = await api.post(`/api/rooms/${roomId}/upload`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-      
-      // Update files and file system
-      setFiles(prev => [...prev, ...res.data]);
-      setFileSystem(buildFileSystem([...files, ...res.data]));
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to upload files');
-    }
-  };
-
-  // Create new folder
-  const handleCreateFolder = async (e, parentPath = '') => {
-    e.preventDefault();
-    if (!newFolderName.trim()) return;
-
-    try {
-      const folderPath = parentPath ? `${parentPath}/${newFolderName}` : newFolderName;
-      const res = await api.post(`/api/rooms/${roomId}/folders`, {
-        path: folderPath
-      });
-      
-      // Update file system
-      setFiles(prev => [...prev, res.data]);
-      setFileSystem(buildFileSystem([...files, res.data]));
-      setNewFolderName('');
-      setIsCreatingFolder(false);
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to create folder');
-    }
-  };
-
-  // Delete file or folder
-  const handleDelete = async (item) => {
-    if (!window.confirm(`Are you sure you want to delete ${item.name}?`)) return;
-    
-    try {
-      await api.delete(`/api/rooms/${roomId}/files/${item._id}`);
-      
-      // Update files and file system
-      const updatedFiles = files.filter(f => f._id !== item._id);
-      setFiles(updatedFiles);
-      setFileSystem(buildFileSystem(updatedFiles));
-      
-      // If the deleted file was active, clear the editor
-      if (activeFile?._id === item._id) {
-        setActiveFile(null);
-        setFileContent('');
-      }
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to delete');
-    }
-  };
-
-  // Fetch initial data
-  useEffect(() => {
-    if (!user?.token) {
-      navigate('/login');
-      return;
-    }
-
-    const fetchRoomData = async () => {
-      try {
-        setIsLoading(true);
-        const [roomRes, filesRes, chatRes] = await Promise.all([
-          api.get(`/api/rooms/${roomId}`),
-          api.get(`/api/rooms/${roomId}/files`),
-          api.get(`/api/rooms/${roomId}/chats`)
-        ]);
-
-        setRoom(roomRes.data);
-        setFiles(filesRes.data);
-        setMessages(chatRes.data);
-        setFileSystem(buildFileSystem(filesRes.data));
-
-        if (filesRes.data.length > 0) {
-          handleSelectFile(filesRes.data[0]);
-        }
-      } catch (err) {
-        setError(err.response?.data?.error || 'Failed to load room data');
-      } finally {
-        setIsLoading(false);
+        setChatMessages(list);
       }
     };
 
-    fetchRoomData();
-  }, [roomId, user, navigate]);
-
-  // Check if current file supports preview
-  const supportsPreview = () => {
-    if (!activeFile?.filename) return false;
-    const extension = activeFile.filename.split('.').pop().toLowerCase();
-    return ['html', 'css'].includes(extension);
-  };
-
-  // Update preview content when file content changes
-  useEffect(() => {
-    if (supportsPreview() && fileContent) {
-      setPreviewContent(fileContent);
-    }
-  }, [fileContent, activeFile]);
-
-  // Toggle preview mode
-  const togglePreviewMode = () => {
-    setIsPreviewMode(!isPreviewMode);
-  };
-
-  // Code execution function
-  const executeCode = async () => {
-    if (!fileContent.trim()) {
-      setExecutionError('No code to execute');
-      return;
-    }
-
-    // Get file extension for language detection
-    const fileExtension = activeFile?.filename?.split('.').pop()?.toLowerCase();
-    const languageMap = {
-      'js': 'javascript',
-      'jsx': 'javascript',
-      'mjs': 'javascript',
-      'py': 'python',
-      'java': 'java',
-      'c': 'c',
-      'cpp': 'cpp',
-      'cc': 'cpp',
-      'cxx': 'cpp',
-      'ts': 'typescript',
-      'tsx': 'typescript'
+    const handleReceive = (msg) => {
+      setChatMessages((prev) => [...prev, msg]);
     };
 
-    const language = languageMap[fileExtension] || 'javascript';
-
-    setIsExecuting(true);
-    setExecutionError('');
-    setExecutionOutput('');
-
-    try {
-      const response = await api.post('/api/execute', {
-        code: fileContent,
-        language: language,
-        filename: activeFile?.filename
-      });
-
-      const result = response.data;
-
-      // Format the output
-      let output = '';
-
-      if (result.error) {
-        output += `Error:\n${result.error}\n`;
-      }
-
-      if (result.output) {
-        output += `Output:\n${result.output}`;
-      }
-
-      if (!output.trim()) {
-        output = 'Code executed successfully (no output)';
-      }
-
-      // Add execution time if available
-      if (result.executionTime) {
-        output += `\n\nExecution time: ${result.executionTime}ms`;
-      }
-
-      setExecutionOutput(output);
-
-    } catch (error) {
-      setExecutionError(`Execution Error: ${error.response?.data?.error || error.message}`);
-    } finally {
-      setIsExecuting(false);
-    }
-  };
-  const stopExecution = () => {
-    setIsExecuting(false);
-    setExecutionError('Execution stopped by user');
-  };
-
-  const handleCreateFile = async (e, folderPath = '') => {
-    e.preventDefault();
-    if (!newFileName.trim()) return;
-
-    setIsCreatingFile(true);
-    try {
-      // Determine language from file extension
-      const fileExtension = newFileName.split('.').pop().toLowerCase();
-      const languageMap = {
-        'js': 'javascript',
-        'jsx': 'javascript',
-        'mjs': 'javascript',
-        'py': 'python',
-        'java': 'java',
-        'c': 'c',
-        'cpp': 'cpp',
-        'cc': 'cpp',
-        'cxx': 'cpp',
-        'ts': 'typescript',
-        'tsx': 'typescript',
-        'html': 'html',
-        'css': 'css',
-        'json': 'json',
-        'md': 'markdown'
-      };
-
-      const language = languageMap[fileExtension] || 'plaintext';
-      const filename = folderPath ? `${folderPath}/${newFileName}` : newFileName;
-
-      const res = await api.post(`/api/rooms/${roomId}/files`, {
-        filename: filename,
-        uploadedBy: user._id,
-        language: language,
-        content: '' // Empty content for new files
-      });
-
-      // Update files and file system
-      const updatedFiles = [...files, res.data];
-      setFiles(updatedFiles);
-      setFileSystem(buildFileSystem(updatedFiles));
-      setNewFileName('');
-      setIsCreatingFile(false);
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to create file');
-      setIsCreatingFile(false);
-    }
-  };
-
-  // Event Handlers
-  const handleSelectFile = async (file) => {
-    if (activeFile?._id === file._id) return;
-    try {
-      const res = await api.get(`/api/rooms/${roomId}/files/${file._id}`);
-      setActiveFile(res.data);
-      setFileContent(res.data.content);
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to load file');
-    }
-  };
-
-  // Recursive function to render file tree
-  const renderFileTree = (node, depth = 0) => {
-    if (node.type === 'file') {
-      return (
-        <div 
-          key={node._id}
-          onContextMenu={(e) => handleContextMenu(e, node)}
-          className={`flex items-center px-2 py-1 text-sm hover:bg-[#1E1E1E] cursor-pointer ${activeFile?._id === node._id ? 'bg-[#2A2D2E]' : ''}`}
-          onClick={() => handleSelectFile(node)}
-          style={{ paddingLeft: `${depth * 12 + 12}px` }}
-        >
-          {getFileIcon(node.name, 'w-4 h-4 mr-2 text-blue-400')}
-          <span className="truncate">{node.name}</span>
-        </div>
+    const handleUpdated = (msg) => {
+      setChatMessages((prev) =>
+        prev.map((m) => (m._id === msg._id ? msg : m))
       );
-    }
-
-    const isExpanded = expandedFolders.has(node.path);
-    const hasChildren = node.children && node.children.length > 0;
-    
-    return (
-      <div key={node.path || 'root'} className="">
-        <div 
-          className="flex items-center px-2 py-1 text-sm hover:bg-[#1E1E1E] cursor-pointer"
-          onClick={() => toggleFolder(node.path)}
-          onContextMenu={(e) => handleContextMenu(e, node)}
-          style={{ paddingLeft: `${depth * 12}px` }}
-        >
-          {isExpanded ? 
-            <FolderOpen className="w-4 h-4 mr-2 text-yellow-400" /> : 
-            <Folder className="w-4 h-4 mr-2 text-yellow-400" />
-          }
-          <span className="truncate">{node.name}</span>
-        </div>
-        
-        {isExpanded && (
-          <div className="ml-2">
-            {node.children.map(child => renderFileTree(child, depth + 1))}
-            
-            {/* New file/folder input in this folder */}
-            {isCreatingFolder && node.path === contextMenu.item?.path && (
-              <form onSubmit={(e) => {
-                handleCreateFolder(e, node.path);
-              }} className="px-2 py-1" style={{ paddingLeft: `${(depth + 1) * 12 + 12}px` }}>
-                <input
-                  type="text"
-                  value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
-                  placeholder="Folder name..."
-                  className="w-full px-1 text-xs bg-[#1E1E1E] border border-gray-700 rounded text-gray-300 focus:outline-none focus:ring-1 focus:ring-[#A78BFA]"
-                  autoFocus
-                  onBlur={() => {
-                    setIsCreatingFolder(false);
-                    setNewFolderName('');
-                  }}
-                />
-              </form>
-            )}
-            
-            {isCreatingFile && node.path === contextMenu.item?.path && (
-              <form onSubmit={(e) => {
-                handleCreateFile(e, node.path);
-              }} className="px-2 py-1" style={{ paddingLeft: `${(depth + 1) * 12 + 12}px` }}>
-                <input
-                  type="text"
-                  value={newFileName}
-                  onChange={(e) => setNewFileName(e.target.value)}
-                  placeholder="File name..."
-                  className="w-full px-1 text-xs bg-[#1E1E1E] border border-gray-700 rounded text-gray-300 focus:outline-none focus:ring-1 focus:ring-[#A78BFA]"
-                  autoFocus
-                  onBlur={() => {
-                    setIsCreatingFile(false);
-                    setNewFileName('');
-                  }}
-                />
-              </form>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const getFileIcon = (fileName = '', className = 'w-4 h-4 mr-2') => {
-    const ext = fileName.split('.').pop().toLowerCase();
-    
-    const iconMap = {
-      // Code files
-      'js': <FileCode2 className={`${className} text-yellow-400`} />,
-      'jsx': <FileCode2 className={`${className} text-blue-400`} />,
-      'ts': <FileCode2 className={`${className} text-blue-600`} />,
-      'tsx': <FileCode2 className={`${className} text-blue-500`} />,
-      'py': <FileCode2 className={`${className} text-blue-300`} />,
-      'java': <FileCode2 className={`${className} text-red-500`} />,
-      'c': <FileCode2 className={`${className} text-blue-400`} />,
-      'cpp': <FileCode2 className={`${className} text-blue-400`} />,
-      'h': <FileCode2 className={`${className} text-blue-400`} />,
-      'hpp': <FileCode2 className={`${className} text-blue-400`} />,
-      
-      // Web files
-      'html': <Globe className={`${className} text-orange-500`} />,
-      'css': <Palette className={`${className} text-blue-500`} />,
-      'scss': <Palette className={`${className} text-pink-400`} />,
-      'sass': <Palette className={`${className} text-pink-400`} />,
-      'less': <Palette className={`${className} text-blue-600`} />,
-      
-      // Data files
-      'json': <FileJson className={`${className} text-yellow-500`} />,
-      'xml': <FileCode2 className={`${className} text-orange-500`} />,
-      'yaml': <FileText className={`${className} text-purple-400`} />,
-      'yml': <FileText className={`${className} text-purple-400`} />,
-      'csv': <FileText className={`${className} text-green-500`} />,
-      
-      // Documents
-      'md': <FileText className={`${className} text-blue-300`} />,
-      'txt': <FileText className={`${className} text-gray-400`} />,
-      'pdf': <FileText className={`${className} text-red-500`} />,
-      'doc': <FileText className={`${className} text-blue-600`} />,
-      'docx': <FileText className={`${className} text-blue-600`} />,
-      'xls': <FileText className={`${className} text-green-600`} />,
-      'xlsx': <FileText className={`${className} text-green-600`} />,
-      'ppt': <FileText className={`${className} text-orange-500`} />,
-      'pptx': <FileText className={`${className} text-orange-500`} />,
-      
-      // Images
-      'jpg': <FileText className={`${className} text-blue-400`} />,
-      'jpeg': <FileText className={`${className} text-blue-400`} />,
-      'png': <FileText className={`${className} text-blue-300`} />,
-      'gif': <FileText className={`${className} text-pink-400`} />,
-      'svg': <FileText className={`${className} text-yellow-500`} />,
-      
-      // Archives
-      'zip': <FileText className={`${className} text-gray-400`} />,
-      'rar': <FileText className={`${className} text-gray-400`} />,
-      '7z': <FileText className={`${className} text-gray-400`} />,
-      'tar': <FileText className={`${className} text-gray-400`} />,
-      'gz': <FileText className={`${className} text-gray-400`} />,
     };
-    
-    return iconMap[ext] || <FileText className={`${className} text-gray-400`} />;
+
+    socket.on("chatHistory", handleHistory);
+    socket.on("receiveMessage", handleReceive);
+    socket.on("messageUpdated", handleUpdated);
+
+    return () => {
+      socket.off("chatHistory", handleHistory);
+      socket.off("receiveMessage", handleReceive);
+      socket.off("messageUpdated", handleUpdated);
+    };
+  }, [socket, roomId]);
+
+  // Auto-scroll chat to bottom when new messages arrive
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
+
+  const handleEditorMount = (editor) => {
+    editorRef.current = editor;
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-[#1E1E1E]">
-        <Loader2 className="animate-spin text-[#A78BFA]" size={48} />
-      </div>
-    );
-  }
+  const handleChange = (value) => {
+    setActiveContent(value ?? "");
+    if (socket && activeFile) {
+      socket.emit("updateFile", { roomId, fileId: activeFile._id, newContent: value ?? "" });
+    }
+  };
 
-  if (error) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-[#1E1E1E] text-red-400">
-        <div className="text-center">
-          <p>Error: {error}</p>
-          <button onClick={() => navigate('/rooms')} className="mt-4 px-4 py-2 bg-[#A78BFA] text-[#1E1E1E] rounded">
-            Back to Rooms
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const handleSave = async () => {
+    if (!activeFile) return;
+    setIsSaving(true);
+    try {
+      await api.put(`/api/rooms/${roomId}/files/${activeFile._id}`, { content: activeContent });
+      appendTerminal(`Saved ${activeFile.filename}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleAddFile = async (filename, folderId = null) => {
+    if (!filename) return;
+    const language = languageByFilename(filename);
+    const res = await api.post(`/api/rooms/${roomId}/files`, {
+      filename,
+      content: "",
+      uploadedBy: user._id,
+      language,
+      folder: folderId
+    });
+    setFiles(prev => [res.data, ...prev]);
+    setActiveFileId(res.data._id);
+    setActiveContent("");
+    appendTerminal(`Created file ${filename}`);
+  };
+
+  const handleAddFolder = async (name) => {
+    if (!name) return;
+    const res = await api.post(`/api/rooms/${roomId}/folders`, { name, createdBy: user._id });
+    setFolders(prev => [...prev, res.data]);
+    setExpandedFolders(prev => new Set([...Array.from(prev), res.data._id]));
+    appendTerminal(`Created folder ${name}`);
+  };
+
+  const toggleFolder = (folderId) => {
+    setExpandedFolders(prev => {
+      const next = new Set(prev);
+      if (next.has(folderId)) next.delete(folderId); else next.add(folderId);
+      return next;
+    });
+  };
+
+  const handleExecute = async () => {
+    if (!activeFile) return;
+    const payload = {
+      code: activeContent,
+      language: activeFile.language || languageByFilename(activeFile.filename),
+      filename: activeFile.filename
+    };
+    setIsTerminalOpen(true);
+    appendTerminal(`Running ${activeFile.filename} (${payload.language})...`);
+    const res = await api.post('/api/execute', payload);
+    if (res.data.output) appendTerminal(res.data.output.trim());
+    if (res.data.error) appendTerminal(res.data.error.trim());
+    appendTerminal(`Process exited with code ${res.data.exitCode} in ${res.data.executionTime}ms`);
+  };
+
+  const appendTerminal = (text) => {
+    setTerminalLines(prev => [...prev, text]);
+  };
+
+  const sendMessage = () => {
+    const trimmed = chatInput.trim();
+    if (!trimmed || !socket) return;
+    socket.emit("sendMessage", { roomId, message: trimmed, sender: user });
+    setChatInput("");
+  };
+
+  const handleDeleteFile = async (file) => {
+    await api.delete(`/api/rooms/${roomId}/files/${file._id}`);
+    setFiles(prev => prev.filter(f => f._id !== file._id));
+    if (activeFileId === file._id) {
+      const next = files.find(f => f._id !== file._id);
+      setActiveFileId(next?._id || null);
+      setActiveContent(next?.content || "");
+    }
+    if (socket) {
+      socket.emit("deleteFile", { roomId, fileId: file._id, fileName: file.filename });
+    }
+    appendTerminal(`Deleted file ${file.filename}`);
+  };
+
+  const handleRenameFile = async (file, newName) => {
+    if (!newName || newName === file.filename) return;
+    await api.put(`/api/rooms/${roomId}/files/${file._id}`, { filename: newName });
+    setFiles(prev => prev.map(f => f._id === file._id ? { ...f, filename: newName } : f));
+    if (socket) {
+      socket.emit("renameFile", { roomId, fileId: file._id, oldName: file.filename, newName });
+    }
+    appendTerminal(`Renamed file ${file.filename} -> ${newName}`);
+  };
+
+  const handleRenameFolder = async (folder, newName) => {
+    if (!newName || newName === folder.name) return;
+    await api.put(`/api/rooms/${roomId}/folders/${folder._id}`, { name: newName });
+    setFolders(prev => prev.map(f => f._id === folder._id ? { ...f, name: newName } : f));
+    appendTerminal(`Renamed folder ${folder.name} -> ${newName}`);
+  };
+
+  const handleContextMenu = (e, item, type = 'file') => {
+    e.preventDefault();
+    const { pageX, pageY } = e;
+    setContextMenu({ x: pageX, y: pageY, item, type });
+  };
 
   return (
-    <div className="flex min-h-screen bg-[#1E1E1E] text-gray-200" onClick={() => setContextMenu({ ...contextMenu, show: false })}>
-      {/* Context Menu */}
-      {contextMenu.show && (
-        <div 
-          className="fixed bg-[#252526] border border-gray-700 rounded shadow-lg py-1 z-50 w-48"
-          style={{
-            top: `${contextMenu.y}px`,
-            left: `${contextMenu.x}px`,
-          }}
-          onClick={(e) => e.stopPropagation()}
+    <div className="flex h-screen overflow-hidden bg-[#1E1E1E] text-gray-200" onClick={() => setContextMenu(null)}>
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
         >
-          {!contextMenu.item && (
+          {contextMenu.type === 'file' && (
             <>
-              <button 
-                className="flex items-center w-full px-4 py-2 text-sm text-gray-200 hover:bg-[#0E639C] text-left"
+              <ContextMenuItem
+                icon={Edit}
                 onClick={() => {
-                  setNewFileName('');
-                  setIsCreatingFile(true);
-                  setContextMenu({ ...contextMenu, show: false });
+                  setEditingItem({ id: contextMenu.item._id, type: 'file' });
+                  setContextMenu(null);
                 }}
               >
-                <FilePlus className="w-4 h-4 mr-2" /> New File
-              </button>
-              <button 
-                className="flex items-center w-full px-4 py-2 text-sm text-gray-200 hover:bg-[#0E639C] text-left"
+                Rename
+              </ContextMenuItem>
+              <ContextMenuItem
+                icon={Trash2}
                 onClick={() => {
-                  setNewFolderName('');
-                  setIsCreatingFolder(true);
-                  setContextMenu({ ...contextMenu, show: false });
+                  handleDeleteFile(contextMenu.item);
+                  setContextMenu(null);
                 }}
+                destructive
               >
-                <FolderPlus className="w-4 h-4 mr-2" /> New Folder
-              </button>
-              <div className="border-t border-gray-700 my-1"></div>
-              <button 
-                className="flex items-center w-full px-4 py-2 text-sm text-gray-200 hover:bg-[#0E639C] text-left"
-                onClick={() => {
-                  fileInputRef.current?.click();
-                  setContextMenu({ ...contextMenu, show: false });
-                }}
-              >
-                <Upload className="w-4 h-4 mr-2" /> Upload Files
-              </button>
+                Delete
+              </ContextMenuItem>
             </>
           )}
-          
-          {contextMenu.item?.type === 'file' && (
+          {contextMenu.type === 'folder' && (
             <>
-              <button 
-                className="flex items-center w-full px-4 py-2 text-sm text-red-400 hover:bg-[#0E639C] text-left"
-                onClick={() => handleDelete(contextMenu.item)}
-              >
-                <Trash2 className="w-4 h-4 mr-2" /> Delete
-              </button>
-            </>
-          )}
-          
-          {contextMenu.item?.type === 'folder' && (
-            <>
-              <button 
-                className="flex items-center w-full px-4 py-2 text-sm text-gray-200 hover:bg-[#0E639C] text-left"
-                onClick={(e) => {
-                  setNewFileName('');
-                  setIsCreatingFile(true);
-                  setContextMenu({ ...contextMenu, show: false, item: contextMenu.item });
-                }}
-              >
-                <FilePlus className="w-4 h-4 mr-2" /> New File
-              </button>
-              <button 
-                className="flex items-center w-full px-4 py-2 text-sm text-gray-200 hover:bg-[#0E639C] text-left"
-                onClick={(e) => {
-                  setNewFolderName('');
-                  setIsCreatingFolder(true);
-                  setContextMenu({ ...contextMenu, show: false, item: contextMenu.item });
-                }}
-              >
-                <FolderPlus className="w-4 h-4 mr-2" /> New Folder
-              </button>
-              <div className="border-t border-gray-700 my-1"></div>
-              <button 
-                className="flex items-center w-full px-4 py-2 text-sm text-gray-200 hover:bg-[#0E639C] text-left"
+              <ContextMenuItem
+                icon={Plus}
                 onClick={() => {
-                  fileInputRef.current?.click();
-                  setContextMenu({ ...contextMenu, show: false });
+                  setCreatingIn({ id: contextMenu.item._id, type: 'file' });
+                  setExpandedFolders(prev => new Set([...prev, contextMenu.item._id]));
+                  setContextMenu(null);
                 }}
               >
-                <Upload className="w-4 h-4 mr-2" /> Upload Files Here
-              </button>
-              <div className="border-t border-gray-700 my-1"></div>
-              <button 
-                className="flex items-center w-full px-4 py-2 text-sm text-red-400 hover:bg-[#0E639C] text-left"
-                onClick={() => handleDelete(contextMenu.item)}
+                New File
+              </ContextMenuItem>
+              <ContextMenuItem
+                icon={FolderIcon}
+                onClick={() => {
+                  setCreatingIn({ id: contextMenu.item._id, type: 'folder' });
+                  setContextMenu(null);
+                }}
               >
-                <Trash2 className="w-4 h-4 mr-2" /> Delete
-              </button>
+                New Folder
+              </ContextMenuItem>
+              <ContextMenuItem
+                icon={Edit}
+                onClick={() => {
+                  setEditingItem({ id: contextMenu.item._id, type: 'folder' });
+                  setContextMenu(null);
+                }}
+              >
+                Rename
+              </ContextMenuItem>
+              <ContextMenuItem
+                icon={Trash2}
+                onClick={() => {
+                  handleDeleteFolder(contextMenu.item);
+                  setContextMenu(null);
+                }}
+                destructive
+              >
+                Delete
+              </ContextMenuItem>
             </>
           )}
-        </div>
+        </ContextMenu>
       )}
-      
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        className="hidden" 
-        multiple 
-        onChange={(e) => {
-          const folderPath = contextMenu.item?.type === 'folder' ? contextMenu.item.path : '';
-          handleFileUpload(e, folderPath);
-        }} 
-      />
-      
-      <main className="flex-1 p-0">
-        {/* VS Code-like title bar */}
-        <div className="flex items-center justify-between h-11 px-4 border-b border-gray-800 bg-[#111111]">
-          <div className="flex items-center gap-3 text-sm">
-            <Link to="/rooms" className="text-gray-300 hover:text-white">← Rooms</Link>
-            <span className="text-gray-600">|</span>
-            <span className="text-gray-300">{room?.name}</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleShareRoom}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-300 hover:text-white hover:bg-gray-800 rounded transition-colors"
-              title="Share Room"
-            >
-              <Share2 size={16} />
-              Share
-            </button>
-            <div className="text-xs text-gray-500">Room ID: {roomId}</div>
+      {/* Sidebar */}
+      <div className="w-64 flex-shrink-0 border-r border-gray-800 p-3 space-y-3 bg-[#1E1E1E]">
+        <button onClick={() => navigate(-1)} className="flex items-center gap-2 px-3 py-2 rounded bg-gray-800 hover:bg-gray-700 text-sm">
+          <ChevronLeft size={16} />
+          <span className="truncate max-w-[120px]">{room?.name || "Room"}</span>
+        </button>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-bold text-gray-300">Explorer</h2>
+          <div className="flex items-center gap-1">
+            <button onClick={handleAddFolder} className="p-1 rounded hover:bg-gray-700" title="New Folder"><FolderIcon size={16} /></button>
+            <button onClick={handleAddFile} className="p-1 rounded hover:bg-gray-700" title="New File"><Plus size={16} /></button>
           </div>
         </div>
-
-        <div className="flex h-[calc(100vh-2.75rem)]">
-          {/* Explorer */}
-          <aside 
-            className="w-64 border-r border-gray-800 bg-[#1E1E1E] hidden md:flex md:flex-col overflow-y-auto"
-            onContextMenu={handleContextMenu}
-          >
-            <div className="px-3 py-2 text-xs uppercase tracking-wide text-gray-500 border-b border-gray-800">
-              <span>Explorer</span>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto">
-              {renderFileTree(fileSystem)}
-              
-              {/* Root level new file/folder input */}
-              {isCreatingFile && !contextMenu.item && (
-                <form onSubmit={(e) => handleCreateFile(e, '')} className="px-2 py-1">
-                  <input
-                    type="text"
-                    value={newFileName}
-                    onChange={(e) => setNewFileName(e.target.value)}
-                    placeholder="File name..."
-                    className="w-full px-1 text-xs bg-[#1E1E1E] border border-gray-700 rounded text-gray-300 focus:outline-none focus:ring-1 focus:ring-[#A78BFA]"
-                    autoFocus
-                    onBlur={() => {
-                      setIsCreatingFile(false);
-                      setNewFileName('');
-                    }}
-                  />
-                </form>
-              )}
-              
-              {isCreatingFolder && !contextMenu.item && (
-                <form onSubmit={(e) => handleCreateFolder(e, '')} className="px-2 py-1">
-                  <input
-                    type="text"
-                    value={newFolderName}
-                    onChange={(e) => setNewFolderName(e.target.value)}
-                    placeholder="Folder name..."
-                    className="w-full px-1 text-xs bg-[#1E1E1E] border border-gray-700 rounded text-gray-300 focus:outline-none focus:ring-1 focus:ring-[#A78BFA]"
-                    autoFocus
-                    onBlur={() => {
-                      setIsCreatingFolder(false);
-                      setNewFolderName('');
-                    }}
-                  />
-                </form>
-              )}
-            </div>
-            {/* File Operation Buttons at Bottom */}
-            <div className="p-3 border-t border-gray-800 bg-[#1E1E1E]">
-              <div className="space-y-2">
-                <button 
-                  onClick={() => {
-                    setNewFileName('');
-                    setIsCreatingFile(true);
-                    setContextMenu({ show: false, x: 0, y: 0, item: null });
-                  }}
-                  className="flex items-center justify-center w-full px-3 py-2 text-sm font-medium text-[#A78BFA] bg-[#2A2A2A] rounded hover:bg-[#3A3A3A] transition-colors"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  New File
-                </button>
-                
-                <button 
-                  onClick={() => {
-                    setNewFolderName('');
-                    setIsCreatingFolder(true);
-                    setContextMenu({ show: false, x: 0, y: 0, item: null });
-                  }}
-                  className="flex items-center justify-center w-full px-3 py-2 text-sm font-medium text-[#A78BFA] bg-[#2A2A2A] rounded hover:bg-[#3A3A3A] transition-colors"
-                >
-                  <FolderPlus className="w-4 h-4 mr-2" />
-                  New Folder
-                </button>
-                
-                <button 
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center justify-center w-full px-3 py-2 text-sm font-medium text-[#A78BFA] bg-[#2A2A2A] rounded hover:bg-[#3A3A3A] transition-colors"
-                >
-                  <Upload className="w-4 h-4 mr-2" />
-                  Upload File
-                </button>
+        <div className="flex-1 min-h-0">
+          <div className="space-y-1 h-full overflow-y-auto scrollbar-hide">
+            {/* Folders */}
+          {folders.map(folder => (
+            <div key={folder._id}>
+              <div
+                className="flex items-center justify-between px-2 py-1 rounded hover:bg-gray-800 cursor-pointer group"
+                onClick={() => toggleFolder(folder._id)}
+                onContextMenu={(e) => handleContextMenu(e, folder, 'folder')}
+              >
+                <div className="flex items-center gap-2">
+                  <FolderIcon size={14} />
+                  {editingItem?.id === folder._id ? (
+                    <InlineForm
+                      defaultValue={folder.name}
+                      onSubmit={(value) => {
+                        handleRenameFolder(folder, value);
+                        setEditingItem(null);
+                      }}
+                      onCancel={() => setEditingItem(null)}
+                      placeholder="Folder name"
+                    />
+                  ) : (
+                    <span className="text-sm truncate">{folder.name}</span>
+                  )}
+                </div>
               </div>
-            </div>
-          </aside>
 
-          {/* Main column: tabs + editor + chat */}
-          <section className="flex-1 flex flex-col min-w-0">
-            {/* Tabs */}
-            <div className="flex items-center h-9 border-b border-gray-800 bg-[#0f0f0f] overflow-x-auto">
-              {files.map(f => (
-                <button
-                  key={f._id}
-                  onClick={() => handleSelectFile(f)}
-                  className={`px-3 h-full text-sm border-r border-gray-800 ${activeFile?._id === f._id ? 'bg-[#1E1E1E] text-white' : 'text-gray-400 hover:text-white'}`}
-                >
-                  {f.filename}
-                </button>
-              ))}
-            </div>
-
-            {/* Editor Toolbar */}
-            <div className="flex items-center justify-between h-10 px-4 border-b border-gray-800 bg-[#0f0f0f]">
-              <div className="flex items-center gap-2">
-                {/* Run/Stop button for executable files */}
-                {!supportsPreview() && (
-                  <button
-                    onClick={isExecuting ? stopExecution : executeCode}
-                    disabled={!fileContent.trim()}
-                    className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors ${
-                      isExecuting
-                        ? 'bg-red-600 hover:bg-red-700 text-white'
-                        : 'bg-green-600 hover:bg-green-700 text-white disabled:bg-gray-600 disabled:cursor-not-allowed'
-                    }`}
-                  >
-                    {isExecuting ? <Square size={16} /> : <Play size={16} />}
-                    {isExecuting ? 'Stop' : 'Run'}
-                  </button>
-                )}
-
-                {/* Preview toggle for HTML/CSS files */}
-                {supportsPreview() && (
-                  <button
-                    onClick={togglePreviewMode}
-                    className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors ${
-                      isPreviewMode
-                        ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                        : 'bg-gray-600 hover:bg-gray-700 text-white'
-                    }`}
-                  >
-                    {isPreviewMode ? <Code size={16} /> : <Eye size={16} />}
-                    {isPreviewMode ? 'Hide Preview' : 'Show Preview'}
-                  </button>
-                )}
-              </div>
-              <div className="text-xs text-gray-400">
-                {activeFile?.filename && `Editing: ${activeFile.filename}`}
-              </div>
-            </div>
-
-            <div className="flex flex-1 min-h-0">
-              <div className="flex-1 flex min-h-0 relative">
-                {supportsPreview() && isPreviewMode ? (
-                  <>
-                    {/* Code Editor Container - Resized */}
-                    <div className="flex-1 flex flex-col min-h-0 pr-56">
-                      <div className="flex-1 bg-[#1E1E1E]/50 border border-gray-800 rounded-xl overflow-hidden m-3">
-                        <Editor
-                          theme="vs-dark"
-                          height="100%"
-                          language={activeFile?.filename?.split('.').pop() || 'javascript'}
-                          value={fileContent}
-                          onChange={setFileContent}
-                          options={{
-                            minimap: { enabled: false },
-                            fontSize: 14,
-                            lineNumbers: "on",
-                            scrollBeyondLastLine: false,
-                            automaticLayout: true,
-                            wordWrap: "on",
-                            folding: false,
-                            renderLineHighlight: "none"
-                          }}
-                        />
-                      </div>
+              {expandedFolders.has(folder._id) && (
+                <div className="ml-4">
+                  {creatingIn?.id === folder._id && creatingIn.type === 'file' && (
+                    <div className="px-2 py-1">
+                      <InlineForm
+                        placeholder="File name"
+                        onSubmit={async (name) => {
+                          await handleAddFile(name, folder._id);
+                          setCreatingIn(null);
+                        }}
+                        onCancel={() => setCreatingIn(null)}
+                      />
                     </div>
-
-                    {/* Live Preview Overlay - Top Right */}
-                    <div className="absolute top-3 right-3 w-56 h-100 bg-[#1E1E1E]/50 border border-gray-800 rounded-xl overflow-hidden">
-                      <div className="flex items-center justify-between h-8 px-3 border-b border-gray-800 bg-[#0f0f0f]">
-                        <span className="text-sm text-gray-300">Live Preview</span>
-                        <button onClick={togglePreviewMode} className="text-xs text-gray-400 hover:text-white">
-                          <Code size={12} />
-                        </button>
-                      </div>
-                      <div className="flex-1 p-1.5 bg-white overflow-hidden">
-                        {activeFile?.filename?.endsWith('.html') ? (
-                          <iframe srcDoc={previewContent} className="w-full h-full border-0" title="HTML Preview" sandbox="allow-scripts allow-same-origin" />
+                  )}
+                  {files.filter(f => String(f.folder) === String(folder._id)).map(f => (
+                    <div
+                      key={f._id}
+                      className={`group flex items-center justify-between px-2 py-1 rounded cursor-pointer ${
+                        activeFileId === f._id ? 'bg-gray-800' : 'hover:bg-gray-800/60'
+                      }`}
+                      onClick={() => { setActiveFileId(f._id); setActiveContent(f.content || ""); }}
+                      onContextMenu={(e) => handleContextMenu(e, f, 'file')}
+                    >
+                      <div className="flex items-center gap-2">
+                        <FileIcon size={14} />
+                        {editingItem?.id === f._id ? (
+                          <InlineForm
+                            defaultValue={f.filename}
+                            onSubmit={(value) => {
+                              handleRenameFile(f, value);
+                              setEditingItem(null);
+                            }}
+                            onCancel={() => setEditingItem(null)}
+                            placeholder="File name"
+                          />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center text-gray-500 text-xs">CSS Preview</div>
+                          <span className="text-sm truncate">{f.filename}</span>
                         )}
                       </div>
                     </div>
-                  </>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+          
+          {/* Files without folder */}
+          {creatingIn?.type === 'file' && !creatingIn.id && (
+            <div className="px-2 py-1">
+              <InlineForm
+                placeholder="File name"
+                onSubmit={async (name) => {
+                  await handleAddFile(name);
+                  setCreatingIn(null);
+                }}
+                onCancel={() => setCreatingIn(null)}
+              />
+            </div>
+          )}
+          {files.filter(f => !f.folder).map(f => (
+            <div
+              key={f._id}
+              className={`group flex items-center justify-between px-2 py-1 rounded cursor-pointer ${
+                activeFileId === f._id ? 'bg-gray-800' : 'hover:bg-gray-800/60'
+              }`}
+              onClick={() => { setActiveFileId(f._id); setActiveContent(f.content || ""); }}
+              onContextMenu={(e) => handleContextMenu(e, f, 'file')}
+            >
+              <div className="flex items-center gap-2">
+                <FileIcon size={14} />
+                {editingItem?.id === f._id ? (
+                  <InlineForm
+                    defaultValue={f.filename}
+                    onSubmit={(value) => {
+                      handleRenameFile(f, value);
+                      setEditingItem(null);
+                    }}
+                    onCancel={() => setEditingItem(null)}
+                    placeholder="File name"
+                  />
                 ) : (
-                  <div className="flex-1 flex flex-col min-h-45">
-                    <div className="flex-1 bg-[#1E1E1E]/50 border border-gray-800 rounded-xl overflow-hidden m-3">
-                      <Editor
-                        theme="vs-dark"
-                        height="100%"
-                        language={activeFile?.filename?.split('.').pop() || 'javascript'}
-                        value={fileContent}
-                        onChange={setFileContent}
-                        options={{
-                          minimap: { enabled: false },
-                          fontSize: 14,
-                          lineNumbers: "on",
-                          scrollBeyondLastLine: false,
-                          automaticLayout: true,
-                          wordWrap: "on",
-                          folding: false,
-                          renderLineHighlight: "none"
-                        }}
-                      />
-                    </div>
-                    {!supportsPreview() && (executionOutput || executionError) && (
-                      <div className="m-3 bg-[#1E1E1E]/50 border border-gray-800 rounded-xl overflow-hidden">
-                        <div className="flex items-center justify-between h-8 px-3 border-b border-gray-800 bg-[#0f0f0f]">
-                          <span className="text-sm text-gray-300">Output</span>
-                          <button onClick={() => { setExecutionOutput(''); setExecutionError(''); }} className="text-xs text-gray-400 hover:text-white">Clear</button>
-                        </div>
-                        <div className="p-3 max-h-40 overflow-y-auto">
-                          {executionError ? (
-                            <div className="text-red-400 text-sm font-mono whitespace-pre-wrap">{executionError}</div>
-                          ) : (
-                            <div className="text-green-400 text-sm font-mono whitespace-pre-wrap">{executionOutput}</div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <span className="text-sm truncate">{f.filename}</span>
                 )}
               </div>
-              <div className="w-full lg:w-96 bg-[#1E1E1E]/50 border border-gray-800 rounded-xl flex flex-col min-h-[300px] m-3">
-                <div className="px-4 py-3 border-b border-gray-800">
-                  <h3 className="text-white font-semibold">Room Chat</h3>
-                </div>
-                <div className="flex-1 min-h-0">
-                  <RoomChat roomId={roomId} />
-                </div>
-              </div>
             </div>
-          </section>
-        </div>
-      </main>
-
-      {/* Share Room Modal */}
-      {showShareModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-[#1E1E1E] rounded-xl p-6 w-full max-w-md mx-4 border border-gray-800">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold text-white">Share Room</h3>
-              <button
-                onClick={() => setShowShareModal(false)}
-                className="text-gray-400 hover:text-white"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="mb-4">
-              <p className="text-gray-300 text-sm mb-3">
-                Share this room link with others so they can join your collaborative workspace.
-              </p>
-
-              <div className="flex items-center gap-2 p-3 bg-[#0f0f0f] border border-gray-700 rounded-lg">
-                <div className="relative flex-1">
-                  <input
-                    type="text"
-                    readOnly
-                    value={roomId}
-                    onFocus={(e) => {
-                      e.target.select();
-                      e.target.setSelectionRange(0, roomId.length);
-                    }}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      const roomIdOnly = roomId.split('/').pop();
-                      const tempInput = document.createElement('input');
-                      tempInput.value = roomIdOnly;
-                      document.body.appendChild(tempInput);
-                      tempInput.select();
-                      document.execCommand('copy');
-                      document.body.removeChild(tempInput);
-                      setCopied(true);
-                      setTimeout(() => setCopied(false), 2000);
-                    }}
-                    className="w-full bg-transparent text-gray-300 text-sm focus:outline-none"
-                  />
-                </div>
-                <button
-                  onClick={handleCopyRoomLink}
-                  className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded transition-colors ${
-                    copied
-                      ? 'bg-green-600 text-white'
-                      : 'bg-[#A78BFA] text-[#1E1E1E] hover:bg-[#A78BFA]/90'
-                  }`}
-                >
-                  {copied ? <Check size={16} /> : <Copy size={16} />}
-                  {copied ? 'Copied!' : 'Copy'}
-                </button>
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowShareModal(false)}
-                className="flex-1 px-4 py-2 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700 transition-colors"
-              >
-                Close
-              </button>
-            </div>
+          ))}
+          {files.length === 0 && <div className="text-xs text-gray-500">No files yet. Create one to start.</div>}
           </div>
         </div>
-      )}
+      </div>
 
-      {/* Toast Notification */}
-      {showToast && (
-        <div className="fixed top-4 right-4 bg-green-600 text-white px-4 py-3 rounded-lg shadow-lg z-50 flex items-center gap-2">
-          <Check size={16} />
-          Room link copied to clipboard!
+      {/* Main editor */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        {/* Topbar */}
+        <div className="h-12 min-h-[3rem] border-b border-gray-800 flex items-center justify-between px-3 bg-[#1E1E1E]">
+          <span className="text-sm text-gray-400">{activeFile?.filename || "No file selected"}</span>
+          <div className="flex items-center gap-2">
+            <button onClick={handleSave} disabled={!activeFile || isSaving} className="px-3 py-1 rounded bg-[#A78BFA] text-[#1E1E1E] text-sm disabled:opacity-50 flex items-center gap-2">
+              <Save size={16} /> {isSaving ? "Saving..." : "Save"}
+            </button>
+
+            {/* Dynamic Run/Preview Button */}
+            {activeFile && (activeFile.language === "html" || /\.html$/i.test(activeFile.filename)) ? (
+              <button onClick={() => setIsPreviewOpen(v => !v)} className="px-3 py-1 rounded bg-blue-500 text-[#1E1E1E] text-sm flex items-center gap-2">
+                <Monitor size={16} /> {isPreviewOpen ? "Hide Preview" : "Preview"}
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  handleExecute();
+                  setIsTerminalOpen(true);
+                }}
+                disabled={!activeFile}
+                className="px-3 py-1 rounded bg-green-500 text-[#1E1E1E] text-sm disabled:opacity-50 flex items-center gap-2"
+              >
+                <Play size={16} /> Run
+              </button>
+            )}
+
+            <button onClick={() => setIsChatOpen(v => !v)} className="p-2 rounded hover:bg-gray-800" aria-label="Toggle Chat">
+              <MessageSquare size={18} />
+            </button>
+          </div>
         </div>
-      )}
+
+        {/* Editor + Preview */}
+        <div className={`flex-1 min-h-0 ${isPreviewOpen ? "grid grid-cols-2" : ""}`}>
+          <div className="h-full">
+            <Editor
+              height="100%"
+              theme="vs-dark"
+              language={activeFile ? (activeFile.language || languageByFilename(activeFile.filename)) : "plaintext"}
+              value={activeContent}
+              onChange={handleChange}
+              onMount={(editor) => {
+                editorRef.current = editor;
+                // Focus the editor after mounting
+                setTimeout(() => editor.focus(), 100);
+              }}
+              options={{
+                fontSize: 14,
+                minimap: { enabled: false },
+                readOnly: false,
+                automaticLayout: true,
+                scrollBeyondLastLine: false,
+                wordWrap: 'on',
+                lineNumbers: 'on',
+                renderWhitespace: 'selection',
+                cursorBlinking: 'smooth',
+                cursorSmoothCaretAnimation: 'on',
+                smoothScrolling: true,
+                mouseWheelZoom: true
+              }}
+            />
+          </div>
+          {isPreviewOpen && (
+            <div className="border-l border-gray-800 h-full bg-white">
+              <iframe title="preview" className="w-full h-full" srcDoc={activeContent} />
+            </div>
+          )}
+        </div>
+
+        {/* Terminal */}
+        {isTerminalOpen && (
+          <div className="h-44 border-t border-gray-800 bg-black text-green-400 font-mono text-xs p-2 overflow-y-auto">
+            {terminalLines.length === 0 ? (
+              <div className="text-gray-500">Terminal ready.</div>
+            ) : terminalLines.map((line, idx) => (
+              <div key={idx} className="whitespace-pre-wrap">{line}</div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Chat panel */}
+      <div className={`fixed right-0 top-0 h-full w-96 bg-[#1E1E1E]/90 border-l border-gray-800 transform transition-transform duration-300 ${isChatOpen ? "translate-x-0" : "translate-x-full"} z-20`}>
+        <div className="h-12 border-b border-gray-800 flex items-center justify-between px-3 bg-[#1E1E1E]/50">
+          <div className="flex items-center gap-2">
+            <MessageSquare size={16} />
+            <span className="text-sm font-semibold">Room Chat</span>
+          </div>
+          <button onClick={() => setIsChatOpen(false)} className="p-1 rounded hover:bg-gray-800" aria-label="Close Chat"><X size={16} /></button>
+        </div>
+
+        {/* Chat Messages */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {chatMessages.map((m) => {
+            const isSelf =
+              m?.sender?._id === user?._id ||
+              m?.sender?.email === user?.email;
+
+            return (
+              <div
+                key={m._id}
+                className={`flex flex-col max-w-[75%] ${
+                  isSelf ? "ml-auto items-end" : "items-start"
+                }`}
+              >
+                {/* Sender + Time */}
+                <div className="text-xs text-gray-400 mb-1">
+                  <span className="font-semibold text-gray-300">
+                    {m?.sender?.username || m?.sender?.email || "User"}
+                  </span>
+                  <span className="ml-2">
+                    {new Date(m.createdAt).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                  {m.isEdited && (
+                    <span className="ml-1 text-xs text-gray-500">
+                      (edited)
+                    </span>
+                  )}
+                </div>
+
+                {/* Message Bubble */}
+                <div
+                  className={`px-4 py-2 rounded-lg text-sm whitespace-pre-wrap ${
+                    isSelf
+                      ? "bg-[#A78BFA] text-[#1E1E1E]"
+                      : "bg-[#1E1E1E] border border-gray-800 text-gray-100"
+                  }`}
+                >
+                  {m.message}
+                </div>
+              </div>
+            );
+          })}
+          <div ref={chatEndRef} />
+        </div>
+
+        {/* Input Bar */}
+        <div className="p-3 border-t border-gray-800 flex items-center gap-2">
+          <input
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+              }
+            }}
+            className="flex-1 px-3 py-2 rounded-md bg-[#1E1E1E] border border-gray-800 outline-none text-gray-200 placeholder-gray-400"
+            placeholder="Type a message..."
+          />
+          <button
+            onClick={sendMessage}
+            className="px-4 py-2 rounded-md bg-[#A78BFA] text-[#1E1E1E] font-medium inline-flex items-center gap-2 hover:bg-purple-500"
+          >
+            <Send size={16} />
+            Send
+          </button>
+        </div>
+      </div>
+
+      {/* Chat edge toggle */}
+      <button
+        onClick={() => setIsChatOpen(v => !v)}
+        className={`fixed top-1/2 -translate-y-1/2 right-96 p-1 rounded-l bg-[#1E1E1E]/50 border border-gray-800 transition-transform duration-300 z-20 ${isChatOpen ? "" : "translate-x-96"}`}
+        aria-label="Toggle Chat"
+      >
+        {isChatOpen ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+      </button>
     </div>
   );
 }
-
-
