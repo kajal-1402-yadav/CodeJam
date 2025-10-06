@@ -1,26 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Editor from "@monaco-editor/react";
-import {
-  MessageSquare,
-  ChevronRight,
-  ChevronLeft,
-  Save,
-  Plus,
-  File as FileIcon,
-  Folder as FolderIcon,
-  Play,
-  TerminalSquare,
-  Monitor,
-  Trash2,
-  X,
-  Send,
-  Upload,
-  Edit,
-  MoreVertical
-} from "lucide-react";
+import { MessageSquare, ChevronRight, ChevronLeft, Send, Edit, Trash2, Folder as FolderIcon, Plus } from "lucide-react";
+import FileExplorer from "../components/FileExplorer";
+import Topbar from "../components/Topbar";
+import Terminal from "../components/Terminal";
+import ChatPanel from "../components/ChatPanel";
+import EditorArea from "../components/EditorArea";
+import FileTabs from "../components/FileTabs";
 import ContextMenu, { ContextMenuItem } from "../components/ContextMenu";
-import InlineForm from "../components/InlineForm";
 import api from "../utils/axiosConfig";
 import useAuthContext from "../hooks/useAuthContext";
 import { useSocket } from "../context/SocketContext";
@@ -64,11 +52,47 @@ export default function RoomEditor() {
   const [editingItem, setEditingItem] = useState(null);
   const [creatingIn, setCreatingIn] = useState(null);
   const [room, setRoom] = useState(null);
-  const chatEndRef = useRef(null);
+  const [selectedLanguage, setSelectedLanguage] = useState("plaintext");
   const didWelcome = useRef(false);
+  const chatEndRef = useRef(null);
   const editorRef = useRef(null);
-
   const activeFile = useMemo(() => files.find(f => f._id === activeFileId) || null, [files, activeFileId]);
+
+  // Update file language in backend when user changes language
+  useEffect(() => {
+    if (!activeFile || !selectedLanguage) return;
+
+    const updateFileLanguage = async () => {
+      try {
+        // Update file in backend
+        await api.put(`/api/rooms/${roomId}/files/${activeFile._id}`, {
+          language: selectedLanguage
+        });
+
+        // Update local file state
+        setFiles(prev => prev.map(f =>
+          f._id === activeFile._id ? { ...f, language: selectedLanguage } : f
+        ));
+
+        // Emit socket event for real-time updates
+        if (socket) {
+          socket.emit("updateFile", {
+            roomId,
+            fileId: activeFile._id,
+            newContent: activeContent,
+            language: selectedLanguage
+          });
+        }
+      } catch (error) {
+        console.error("Failed to update file language:", error);
+      }
+    };
+
+    // Only update if the language is different from current file language
+    if (selectedLanguage !== (activeFile.language || languageByFilename(activeFile.filename))) {
+      updateFileLanguage();
+    }
+  }, [selectedLanguage, activeFile, roomId, socket, activeContent]);
 
   useEffect(() => {
     if (!socket || !user) return;
@@ -89,8 +113,19 @@ export default function RoomEditor() {
       setFolders(foldersRes.data);
       setRoom(roomRes.data);
       if (filesRes.data.length) {
-        setActiveFileId(filesRes.data[0]._id);
-        setActiveContent(filesRes.data[0].content || "");
+        const firstFile = filesRes.data[0];
+        setActiveFileId(firstFile._id);
+        setActiveContent(firstFile.content || "");
+
+        // Auto-open preview for HTML files, terminal for others
+        const isHtmlFile = firstFile.language === "html" || /\.html$/i.test(firstFile.filename);
+        if (isHtmlFile) {
+          setIsPreviewOpen(true);
+          setIsTerminalOpen(false);
+        } else {
+          setIsPreviewOpen(false);
+          setIsTerminalOpen(false); // Don't auto-open terminal for non-HTML files
+        }
       }
     };
     load().catch(() => {});
@@ -121,9 +156,22 @@ export default function RoomEditor() {
       socket.off("fileRenamed", onFileRenamed);
       socket.off("fileDeleted", onFileDeleted);
     };
-  }, [socket, activeFileId, files]);
+  }, [socket]);
+    
+  // Auto-adjust preview/terminal based on file type when switching files
+  useEffect(() => {
+    if (!activeFile) return;
 
-  // Chat socket integration
+    const isHtmlFile = activeFile.language === "html" || /\.html$/i.test(activeFile.filename);
+    if (isHtmlFile) {
+      setIsPreviewOpen(true);
+      setIsTerminalOpen(false);
+    } else {
+      setIsPreviewOpen(false);
+      // Don't auto-open terminal - let user click Run button
+      setIsTerminalOpen(false);
+    }
+  }, [activeFile]);
   useEffect(() => {
     if (!socket) return;
 
@@ -204,6 +252,7 @@ export default function RoomEditor() {
     setFiles(prev => [res.data, ...prev]);
     setActiveFileId(res.data._id);
     setActiveContent("");
+    setCreatingIn(null); // Clear creating state after successful creation
     appendTerminal(`Created file ${filename}`);
   };
 
@@ -212,6 +261,7 @@ export default function RoomEditor() {
     const res = await api.post(`/api/rooms/${roomId}/folders`, { name, createdBy: user._id });
     setFolders(prev => [...prev, res.data]);
     setExpandedFolders(prev => new Set([...Array.from(prev), res.data._id]));
+    setCreatingIn(null); // Clear creating state after successful creation
     appendTerminal(`Created folder ${name}`);
   };
 
@@ -230,7 +280,7 @@ export default function RoomEditor() {
       language: activeFile.language || languageByFilename(activeFile.filename),
       filename: activeFile.filename
     };
-    setIsTerminalOpen(true);
+    setIsTerminalOpen(true); // Open terminal when running
     appendTerminal(`Running ${activeFile.filename} (${payload.language})...`);
     const res = await api.post('/api/execute', payload);
     if (res.data.output) appendTerminal(res.data.output.trim());
@@ -238,8 +288,8 @@ export default function RoomEditor() {
     appendTerminal(`Process exited with code ${res.data.exitCode} in ${res.data.executionTime}ms`);
   };
 
-  const appendTerminal = (text) => {
-    setTerminalLines(prev => [...prev, text]);
+  const toggleTerminal = () => {
+    setIsTerminalOpen(prev => !prev);
   };
 
   const sendMessage = () => {
@@ -278,6 +328,12 @@ export default function RoomEditor() {
     await api.put(`/api/rooms/${roomId}/folders/${folder._id}`, { name: newName });
     setFolders(prev => prev.map(f => f._id === folder._id ? { ...f, name: newName } : f));
     appendTerminal(`Renamed folder ${folder.name} -> ${newName}`);
+  };
+
+  const handleDeleteFolder = async (folder) => {
+    await api.delete(`/api/rooms/${roomId}/folders/${folder._id}`);
+    setFolders(prev => prev.filter(f => f._id !== folder._id));
+    appendTerminal(`Deleted folder ${folder.name}`);
   };
 
   const handleContextMenu = (e, item, type = 'file') => {
@@ -361,311 +417,99 @@ export default function RoomEditor() {
           )}
         </ContextMenu>
       )}
+
       {/* Sidebar */}
-      <div className="w-64 flex-shrink-0 border-r border-gray-800 p-3 space-y-3 bg-[#1E1E1E]">
-        <button onClick={() => navigate(-1)} className="flex items-center gap-2 px-3 py-2 rounded bg-gray-800 hover:bg-gray-700 text-sm">
-          <ChevronLeft size={16} />
-          <span className="truncate max-w-[120px]">{room?.name || "Room"}</span>
-        </button>
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-bold text-gray-300">Explorer</h2>
-          <div className="flex items-center gap-1">
-            <button onClick={handleAddFolder} className="p-1 rounded hover:bg-gray-700" title="New Folder"><FolderIcon size={16} /></button>
-            <button onClick={handleAddFile} className="p-1 rounded hover:bg-gray-700" title="New File"><Plus size={16} /></button>
-          </div>
-        </div>
-        <div className="flex-1 min-h-0">
-          <div className="space-y-1 h-full overflow-y-auto scrollbar-hide">
-            {/* Folders */}
-          {folders.map(folder => (
-            <div key={folder._id}>
-              <div
-                className="flex items-center justify-between px-2 py-1 rounded hover:bg-gray-800 cursor-pointer group"
-                onClick={() => toggleFolder(folder._id)}
-                onContextMenu={(e) => handleContextMenu(e, folder, 'folder')}
-              >
-                <div className="flex items-center gap-2">
-                  <FolderIcon size={14} />
-                  {editingItem?.id === folder._id ? (
-                    <InlineForm
-                      defaultValue={folder.name}
-                      onSubmit={(value) => {
-                        handleRenameFolder(folder, value);
-                        setEditingItem(null);
-                      }}
-                      onCancel={() => setEditingItem(null)}
-                      placeholder="Folder name"
-                    />
-                  ) : (
-                    <span className="text-sm truncate">{folder.name}</span>
-                  )}
-                </div>
-              </div>
+      <FileExplorer
+        files={files}
+        folders={folders}
+        activeFileId={activeFileId}
+        expandedFolders={expandedFolders}
+        editingItem={editingItem}
+        creatingIn={creatingIn}
+        onFileSelect={(fileId, content) => {
+          setActiveFileId(fileId);
+          setActiveContent(content);
+        }}
+        onToggleFolder={toggleFolder}
+        onContextMenu={handleContextMenu}
+        onSetEditingItem={setEditingItem}
+        onSetCreatingIn={setCreatingIn}
+        onAddFile={handleAddFile}
+        onAddFolder={handleAddFolder}
+        onRenameFile={handleRenameFile}
+        onRenameFolder={handleRenameFolder}
+        onDeleteFile={handleDeleteFile}
+        onDeleteFolder={handleDeleteFolder}
+        roomName={room?.name}
+        onNavigateBack={() => navigate(-1)}
+      />
 
-              {expandedFolders.has(folder._id) && (
-                <div className="ml-4">
-                  {creatingIn?.id === folder._id && creatingIn.type === 'file' && (
-                    <div className="px-2 py-1">
-                      <InlineForm
-                        placeholder="File name"
-                        onSubmit={async (name) => {
-                          await handleAddFile(name, folder._id);
-                          setCreatingIn(null);
-                        }}
-                        onCancel={() => setCreatingIn(null)}
-                      />
-                    </div>
-                  )}
-                  {files.filter(f => String(f.folder) === String(folder._id)).map(f => (
-                    <div
-                      key={f._id}
-                      className={`group flex items-center justify-between px-2 py-1 rounded cursor-pointer ${
-                        activeFileId === f._id ? 'bg-gray-800' : 'hover:bg-gray-800/60'
-                      }`}
-                      onClick={() => { setActiveFileId(f._id); setActiveContent(f.content || ""); }}
-                      onContextMenu={(e) => handleContextMenu(e, f, 'file')}
-                    >
-                      <div className="flex items-center gap-2">
-                        <FileIcon size={14} />
-                        {editingItem?.id === f._id ? (
-                          <InlineForm
-                            defaultValue={f.filename}
-                            onSubmit={(value) => {
-                              handleRenameFile(f, value);
-                              setEditingItem(null);
-                            }}
-                            onCancel={() => setEditingItem(null)}
-                            placeholder="File name"
-                          />
-                        ) : (
-                          <span className="text-sm truncate">{f.filename}</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-          
-          {/* Files without folder */}
-          {creatingIn?.type === 'file' && !creatingIn.id && (
-            <div className="px-2 py-1">
-              <InlineForm
-                placeholder="File name"
-                onSubmit={async (name) => {
-                  await handleAddFile(name);
-                  setCreatingIn(null);
-                }}
-                onCancel={() => setCreatingIn(null)}
-              />
-            </div>
-          )}
-          {files.filter(f => !f.folder).map(f => (
-            <div
-              key={f._id}
-              className={`group flex items-center justify-between px-2 py-1 rounded cursor-pointer ${
-                activeFileId === f._id ? 'bg-gray-800' : 'hover:bg-gray-800/60'
-              }`}
-              onClick={() => { setActiveFileId(f._id); setActiveContent(f.content || ""); }}
-              onContextMenu={(e) => handleContextMenu(e, f, 'file')}
-            >
-              <div className="flex items-center gap-2">
-                <FileIcon size={14} />
-                {editingItem?.id === f._id ? (
-                  <InlineForm
-                    defaultValue={f.filename}
-                    onSubmit={(value) => {
-                      handleRenameFile(f, value);
-                      setEditingItem(null);
-                    }}
-                    onCancel={() => setEditingItem(null)}
-                    placeholder="File name"
-                  />
-                ) : (
-                  <span className="text-sm truncate">{f.filename}</span>
-                )}
-              </div>
-            </div>
-          ))}
-          {files.length === 0 && <div className="text-xs text-gray-500">No files yet. Create one to start.</div>}
-          </div>
-        </div>
-      </div>
+      {/* Right side - Main content area */}
+      <div className="flex-1 flex flex-col h-full">
+        {/* Main editor */}
+        <div className="flex-1 flex flex-col h-full overflow-hidden">
+          {/* Topbar */}
+          <Topbar
+            activeFile={activeFile}
+            selectedLanguage={selectedLanguage}
+            isSaving={isSaving}
+            isPreviewOpen={isPreviewOpen}
+            onSave={handleSave}
+            onRun={() => {
+              handleExecute();
+              setIsTerminalOpen(true);
+            }}
+            onTogglePreview={() => setIsPreviewOpen(v => !v)}
+            onToggleChat={() => setIsChatOpen(v => !v)}
+            onLanguageChange={setSelectedLanguage}
+          />
 
-      {/* Main editor */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Topbar */}
-        <div className="h-12 min-h-[3rem] border-b border-gray-800 flex items-center justify-between px-3 bg-[#1E1E1E]">
-          <span className="text-sm text-gray-400">{activeFile?.filename || "No file selected"}</span>
-          <div className="flex items-center gap-2">
-            <button onClick={handleSave} disabled={!activeFile || isSaving} className="px-3 py-1 rounded bg-[#A78BFA] text-[#1E1E1E] text-sm disabled:opacity-50 flex items-center gap-2">
-              <Save size={16} /> {isSaving ? "Saving..." : "Save"}
-            </button>
+          {/* File Tabs */}
+          <FileTabs
+            files={files}
+            activeFileId={activeFileId}
+            onFileSelect={(fileId, content) => {
+              setActiveFileId(fileId);
+              setActiveContent(content);
+            }}
+            onCloseFile={(fileId) => {
+              // For now, just switch to the file (no actual closing)
+              // In a full implementation, you might want to track open files separately
+              const file = files.find(f => f._id === fileId);
+              if (file) {
+                setActiveFileId(fileId);
+                setActiveContent(file.content || "");
+              }
+            }}
+          />
 
-            {/* Dynamic Run/Preview Button */}
-            {activeFile && (activeFile.language === "html" || /\.html$/i.test(activeFile.filename)) ? (
-              <button onClick={() => setIsPreviewOpen(v => !v)} className="px-3 py-1 rounded bg-blue-500 text-[#1E1E1E] text-sm flex items-center gap-2">
-                <Monitor size={16} /> {isPreviewOpen ? "Hide Preview" : "Preview"}
-              </button>
-            ) : (
-              <button
-                onClick={() => {
-                  handleExecute();
-                  setIsTerminalOpen(true);
-                }}
-                disabled={!activeFile}
-                className="px-3 py-1 rounded bg-green-500 text-[#1E1E1E] text-sm disabled:opacity-50 flex items-center gap-2"
-              >
-                <Play size={16} /> Run
-              </button>
-            )}
-
-            <button onClick={() => setIsChatOpen(v => !v)} className="p-2 rounded hover:bg-gray-800" aria-label="Toggle Chat">
-              <MessageSquare size={18} />
-            </button>
-          </div>
+          {/* Editor + Preview */}
+          <EditorArea
+            activeContent={activeContent}
+            selectedLanguage={selectedLanguage}
+            isPreviewOpen={isPreviewOpen}
+            onEditorMount={(editor) => {
+              editorRef.current = editor;
+              setTimeout(() => editor.focus(), 100);
+            }}
+            onContentChange={handleChange}
+          />
         </div>
 
-        {/* Editor + Preview */}
-        <div className={`flex-1 min-h-0 ${isPreviewOpen ? "grid grid-cols-2" : ""}`}>
-          <div className="h-full">
-            <Editor
-              height="100%"
-              theme="vs-dark"
-              language={activeFile ? (activeFile.language || languageByFilename(activeFile.filename)) : "plaintext"}
-              value={activeContent}
-              onChange={handleChange}
-              onMount={(editor) => {
-                editorRef.current = editor;
-                // Focus the editor after mounting
-                setTimeout(() => editor.focus(), 100);
-              }}
-              options={{
-                fontSize: 14,
-                minimap: { enabled: false },
-                readOnly: false,
-                automaticLayout: true,
-                scrollBeyondLastLine: false,
-                wordWrap: 'on',
-                lineNumbers: 'on',
-                renderWhitespace: 'selection',
-                cursorBlinking: 'smooth',
-                cursorSmoothCaretAnimation: 'on',
-                smoothScrolling: true,
-                mouseWheelZoom: true
-              }}
-            />
-          </div>
-          {isPreviewOpen && (
-            <div className="border-l border-gray-800 h-full bg-white">
-              <iframe title="preview" className="w-full h-full" srcDoc={activeContent} />
-            </div>
-          )}
-        </div>
-
-        {/* Terminal */}
-        {isTerminalOpen && (
-          <div className="h-44 border-t border-gray-800 bg-black text-green-400 font-mono text-xs p-2 overflow-y-auto">
-            {terminalLines.length === 0 ? (
-              <div className="text-gray-500">Terminal ready.</div>
-            ) : terminalLines.map((line, idx) => (
-              <div key={idx} className="whitespace-pre-wrap">{line}</div>
-            ))}
-          </div>
-        )}
+        {/* Terminal - separate bottom panel */}
+        <Terminal isOpen={isTerminalOpen} terminalLines={terminalLines} />
       </div>
 
       {/* Chat panel */}
-      <div className={`fixed right-0 top-0 h-full w-96 bg-[#1E1E1E]/90 border-l border-gray-800 transform transition-transform duration-300 ${isChatOpen ? "translate-x-0" : "translate-x-full"} z-20`}>
-        <div className="h-12 border-b border-gray-800 flex items-center justify-between px-3 bg-[#1E1E1E]/50">
-          <div className="flex items-center gap-2">
-            <MessageSquare size={16} />
-            <span className="text-sm font-semibold">Room Chat</span>
-          </div>
-          <button onClick={() => setIsChatOpen(false)} className="p-1 rounded hover:bg-gray-800" aria-label="Close Chat"><X size={16} /></button>
-        </div>
-
-        {/* Chat Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {chatMessages.map((m) => {
-            const isSelf =
-              m?.sender?._id === user?._id ||
-              m?.sender?.email === user?.email;
-
-            return (
-              <div
-                key={m._id}
-                className={`flex flex-col max-w-[75%] ${
-                  isSelf ? "ml-auto items-end" : "items-start"
-                }`}
-              >
-                {/* Sender + Time */}
-                <div className="text-xs text-gray-400 mb-1">
-                  <span className="font-semibold text-gray-300">
-                    {m?.sender?.username || m?.sender?.email || "User"}
-                  </span>
-                  <span className="ml-2">
-                    {new Date(m.createdAt).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                  {m.isEdited && (
-                    <span className="ml-1 text-xs text-gray-500">
-                      (edited)
-                    </span>
-                  )}
-                </div>
-
-                {/* Message Bubble */}
-                <div
-                  className={`px-4 py-2 rounded-lg text-sm whitespace-pre-wrap ${
-                    isSelf
-                      ? "bg-[#A78BFA] text-[#1E1E1E]"
-                      : "bg-[#1E1E1E] border border-gray-800 text-gray-100"
-                  }`}
-                >
-                  {m.message}
-                </div>
-              </div>
-            );
-          })}
-          <div ref={chatEndRef} />
-        </div>
-
-        {/* Input Bar */}
-        <div className="p-3 border-t border-gray-800 flex items-center gap-2">
-          <input
-            value={chatInput}
-            onChange={(e) => setChatInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-              }
-            }}
-            className="flex-1 px-3 py-2 rounded-md bg-[#1E1E1E] border border-gray-800 outline-none text-gray-200 placeholder-gray-400"
-            placeholder="Type a message..."
-          />
-          <button
-            onClick={sendMessage}
-            className="px-4 py-2 rounded-md bg-[#A78BFA] text-[#1E1E1E] font-medium inline-flex items-center gap-2 hover:bg-purple-500"
-          >
-            <Send size={16} />
-            Send
-          </button>
-        </div>
-      </div>
-
-      {/* Chat edge toggle */}
-      <button
-        onClick={() => setIsChatOpen(v => !v)}
-        className={`fixed top-1/2 -translate-y-1/2 right-96 p-1 rounded-l bg-[#1E1E1E]/50 border border-gray-800 transition-transform duration-300 z-20 ${isChatOpen ? "" : "translate-x-96"}`}
-        aria-label="Toggle Chat"
-      >
-        {isChatOpen ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-      </button>
+      <ChatPanel
+        isOpen={isChatOpen}
+        messages={chatMessages}
+        inputValue={chatInput}
+        onInputChange={setChatInput}
+        onSendMessage={sendMessage}
+        onToggleChat={() => setIsChatOpen(v => !v)}
+        currentUser={user}
+      />
     </div>
   );
 }
