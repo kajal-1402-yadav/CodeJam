@@ -24,7 +24,7 @@ const FileTabs = ({
           <span className="truncate text-sm font-medium">
             {file.filename}
           </span>
-          {files.length > 1 && (
+          {files.length >= 1 && (
             <button
               onClick={(e) => {
                 e.stopPropagation();

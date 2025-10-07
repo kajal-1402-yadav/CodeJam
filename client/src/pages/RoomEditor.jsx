@@ -31,14 +31,17 @@ const languageByFilename = (name) => {
 };
 
 export default function RoomEditor() {
-  const { id: roomId } = useParams();
   const { user } = useAuthContext();
   const navigate = useNavigate();
   const socket = useSocket();
+  const { id: roomId } = useParams();
 
+  const [openTabs, setOpenTabs] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [files, setFiles] = useState([]);
-  const [activeFileId, setActiveFileId] = useState(null);
   const [folders, setFolders] = useState([]);
+  const [activeFileId, setActiveFileId] = useState(null);
+  const [room, setRoom] = useState(null);
   const [expandedFolders, setExpandedFolders] = useState(new Set());
   const [activeContent, setActiveContent] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -51,12 +54,12 @@ export default function RoomEditor() {
   const [contextMenu, setContextMenu] = useState(null);
   const [editingItem, setEditingItem] = useState(null);
   const [creatingIn, setCreatingIn] = useState(null);
-  const [room, setRoom] = useState(null);
   const [selectedLanguage, setSelectedLanguage] = useState("plaintext");
   const didWelcome = useRef(false);
   const chatEndRef = useRef(null);
   const editorRef = useRef(null);
   const activeFile = useMemo(() => files.find(f => f._id === activeFileId) || null, [files, activeFileId]);
+  const openTabsData = useMemo(() => openTabs.map(tabId => files.find(f => f._id === tabId)).filter(Boolean), [openTabs, files]);
 
   // Update file language in backend when user changes language
   useEffect(() => {
@@ -104,33 +107,47 @@ export default function RoomEditor() {
 
   useEffect(() => {
     const load = async () => {
-      const [filesRes, foldersRes, roomRes] = await Promise.all([
-        api.get(`/api/rooms/${roomId}/files`),
-        api.get(`/api/rooms/${roomId}/folders`),
-        api.get(`/api/rooms/${roomId}`)
-      ]);
-      setFiles(filesRes.data);
-      setFolders(foldersRes.data);
-      setRoom(roomRes.data);
-      if (filesRes.data.length) {
-        const firstFile = filesRes.data[0];
-        setActiveFileId(firstFile._id);
-        setActiveContent(firstFile.content || "");
-
-        // Auto-open preview for HTML files, terminal for others
-        const isHtmlFile = firstFile.language === "html" || /\.html$/i.test(firstFile.filename);
-        if (isHtmlFile) {
-          setIsPreviewOpen(true);
-          setIsTerminalOpen(false);
-        } else {
-          setIsPreviewOpen(false);
-          setIsTerminalOpen(false); // Don't auto-open terminal for non-HTML files
+      try {
+        // Only show loading on first mount
+        if (!files.length) setIsLoading(true);
+  
+        const [filesRes, foldersRes, roomRes] = await Promise.all([
+          api.get(`/api/rooms/${roomId}/files`),
+          api.get(`/api/rooms/${roomId}/folders`),
+          api.get(`/api/rooms/${roomId}`)
+        ]);
+  
+        setFiles(filesRes.data);
+        setFolders(foldersRes.data);
+        setRoom(roomRes.data);
+  
+        // Auto-select first file only on first load
+        if (!activeFileId && filesRes.data.length) {
+          const firstFile = filesRes.data[0];
+          setActiveFileId(firstFile._id);
+          setActiveContent(firstFile.content || "");
+          setOpenTabs([firstFile._id]);
+  
+          const isHtmlFile = firstFile.language === "html" || /\.html$/i.test(firstFile.filename);
+          if (isHtmlFile) {
+            setIsPreviewOpen(true);
+            setIsTerminalOpen(false);
+          } else {
+            setIsPreviewOpen(false);
+            setIsTerminalOpen(false);
+          }
         }
+      } catch (error) {
+        console.error("Failed to load room data:", error);
+      } finally {
+        setIsLoading(false);
       }
     };
-    load().catch(() => {});
+    load();
   }, [roomId]);
+  
 
+  // Optimize useEffect dependencies to prevent unnecessary re-renders
   useEffect(() => {
     if (!socket) return;
     const onFileUpdated = ({ fileId, newContent }) => {
@@ -142,10 +159,20 @@ export default function RoomEditor() {
     };
     const onFileDeleted = ({ fileId }) => {
       setFiles(prev => prev.filter(f => f._id !== fileId));
+      setOpenTabs(prev => prev.filter(id => id !== fileId)); // Remove from open tabs
       if (activeFileId === fileId) {
-        const next = files.find(f => f._id !== fileId);
-        setActiveFileId(next?._id || null);
-        setActiveContent(next?.content || "");
+        const remainingTabs = openTabs.filter(id => id !== fileId);
+        if (remainingTabs.length > 0) {
+          const nextTabId = remainingTabs[0];
+          const nextFile = files.find(f => f._id === nextTabId);
+          if (nextFile) {
+            setActiveFileId(nextTabId);
+            setActiveContent(nextFile.content || "");
+          }
+        } else {
+          setActiveFileId(null);
+          setActiveContent("");
+        }
       }
     };
     socket.on("fileUpdated", onFileUpdated);
@@ -156,7 +183,7 @@ export default function RoomEditor() {
       socket.off("fileRenamed", onFileRenamed);
       socket.off("fileDeleted", onFileDeleted);
     };
-  }, [socket]);
+  }, [socket, activeFileId]); // Removed files dependency to prevent stale closures
     
   // Auto-adjust preview/terminal based on file type when switching files
   useEffect(() => {
@@ -228,6 +255,23 @@ export default function RoomEditor() {
     }
   };
 
+  // Debounced version for performance
+  const debouncedHandleChange = useMemo(
+    () => {
+      let timeoutId;
+      return (value) => {
+        setActiveContent(value ?? "");
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+          if (socket && activeFile) {
+            socket.emit("updateFile", { roomId, fileId: activeFile._id, newContent: value ?? "" });
+          }
+        }, 300); // Debounce for 300ms
+      };
+    },
+    [socket, activeFile, roomId]
+  );
+
   const handleSave = async () => {
     if (!activeFile) return;
     setIsSaving(true);
@@ -252,6 +296,7 @@ export default function RoomEditor() {
     setFiles(prev => [res.data, ...prev]);
     setActiveFileId(res.data._id);
     setActiveContent("");
+    setOpenTabs(prev => [res.data._id, ...prev]); // Add new file to open tabs
     setCreatingIn(null); // Clear creating state after successful creation
     appendTerminal(`Created file ${filename}`);
   };
@@ -273,6 +318,34 @@ export default function RoomEditor() {
     });
   };
 
+  const handleCloseTab = (fileId) => {
+    setOpenTabs(prev => prev.filter(id => id !== fileId));
+
+    // If closing the active tab, switch to another tab
+    if (activeFileId === fileId) {
+      const remainingTabs = openTabs.filter(id => id !== fileId);
+      if (remainingTabs.length > 0) {
+        // Switch to the next tab (or previous if it was the last one)
+        const currentIndex = openTabs.indexOf(fileId);
+        const nextIndex = currentIndex > 0 ? currentIndex - 1 : 0;
+        const nextTabId = remainingTabs[nextIndex];
+        const nextFile = files.find(f => f._id === nextTabId);
+        if (nextFile) {
+          setActiveFileId(nextTabId);
+          setActiveContent(nextFile.content || "");
+        }
+      } else {
+        // No tabs left, reset to null
+        setActiveFileId(null);
+        setActiveContent("");
+      }
+    }
+  };
+
+  const clearTerminal = () => {
+    setTerminalLines([]);
+  };
+
   const handleExecute = async () => {
     if (!activeFile) return;
     const payload = {
@@ -281,6 +354,7 @@ export default function RoomEditor() {
       filename: activeFile.filename
     };
     setIsTerminalOpen(true); // Open terminal when running
+    clearTerminal(); // Clear terminal before execution
     appendTerminal(`Running ${activeFile.filename} (${payload.language})...`);
     const res = await api.post('/api/execute', payload);
     if (res.data.output) appendTerminal(res.data.output.trim());
@@ -302,10 +376,20 @@ export default function RoomEditor() {
   const handleDeleteFile = async (file) => {
     await api.delete(`/api/rooms/${roomId}/files/${file._id}`);
     setFiles(prev => prev.filter(f => f._id !== file._id));
+    setOpenTabs(prev => prev.filter(id => id !== file._id)); // Remove from open tabs
     if (activeFileId === file._id) {
-      const next = files.find(f => f._id !== file._id);
-      setActiveFileId(next?._id || null);
-      setActiveContent(next?.content || "");
+      const remainingTabs = openTabs.filter(id => id !== file._id);
+      if (remainingTabs.length > 0) {
+        const nextTabId = remainingTabs[0];
+        const nextFile = files.find(f => f._id === nextTabId);
+        if (nextFile) {
+          setActiveFileId(nextTabId);
+          setActiveContent(nextFile.content || "");
+        }
+      } else {
+        setActiveFileId(null);
+        setActiveContent("");
+      }
     }
     if (socket) {
       socket.emit("deleteFile", { roomId, fileId: file._id, fileName: file.filename });
@@ -429,6 +513,8 @@ export default function RoomEditor() {
         onFileSelect={(fileId, content) => {
           setActiveFileId(fileId);
           setActiveContent(content);
+          // Add file to open tabs if not already there
+          setOpenTabs(prev => prev.includes(fileId) ? prev : [...prev, fileId]);
         }}
         onToggleFolder={toggleFolder}
         onContextMenu={handleContextMenu}
@@ -466,34 +552,40 @@ export default function RoomEditor() {
 
           {/* File Tabs */}
           <FileTabs
-            files={files}
+            files={openTabsData}
             activeFileId={activeFileId}
             onFileSelect={(fileId, content) => {
               setActiveFileId(fileId);
               setActiveContent(content);
+              // Add file to open tabs if not already there
+              setOpenTabs(prev => prev.includes(fileId) ? prev : [...prev, fileId]);
             }}
-            onCloseFile={(fileId) => {
-              // For now, just switch to the file (no actual closing)
-              // In a full implementation, you might want to track open files separately
-              const file = files.find(f => f._id === fileId);
-              if (file) {
-                setActiveFileId(fileId);
-                setActiveContent(file.content || "");
-              }
-            }}
+            onCloseFile={handleCloseTab}
           />
 
           {/* Editor + Preview */}
-          <EditorArea
-            activeContent={activeContent}
-            selectedLanguage={selectedLanguage}
-            isPreviewOpen={isPreviewOpen}
-            onEditorMount={(editor) => {
-              editorRef.current = editor;
-              setTimeout(() => editor.focus(), 100);
-            }}
-            onContentChange={handleChange}
-          />
+          {openTabs.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center bg-[#1E1E1E] text-gray-400">
+              <div className="text-center">
+                <div className="text-lg mb-2">Welcome to CodeJam!</div>
+                <div className="text-sm">Select a file from the explorer to start coding</div>
+                <div className="text-xs mt-4 text-gray-500">
+                  Collaborate in real-time • Run code instantly • Share your workspace
+                </div>
+              </div>
+            </div>
+          ) : (
+            <EditorArea
+              activeContent={activeContent}
+              selectedLanguage={selectedLanguage}
+              isPreviewOpen={isPreviewOpen}
+              onEditorMount={(editor) => {
+                editorRef.current = editor;
+                setTimeout(() => editor.focus(), 100);
+              }}
+              onContentChange={debouncedHandleChange}
+            />
+          )}
         </div>
 
         {/* Terminal - separate bottom panel */}

@@ -53,13 +53,16 @@ app.use('/api', activityRoutes)
 
 //connect to db
 mongoose.connect(process.env.MONGO_URI)
-    .then(() => {
-        // listen for requests using the HTTP server
-        server.listen(process.env.PORT, () => {
-            console.log('Connected to db and listening on port', process.env.PORT)
-        })
+  .then(() => {
+    console.log('Connected to MongoDB successfully');
+    // listen for requests using the HTTP server
+    server.listen(process.env.PORT, () => {
+      console.log('Connected to db and listening on port', process.env.PORT)
     })
-    .catch((error) => {
-        console.log(error)
-    })
+  })
+  .catch((error) => {
+    console.log('MongoDB connection error:', error)
+    // Exit the process if database connection fails
+    process.exit(1);
+  })
 
