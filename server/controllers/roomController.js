@@ -37,7 +37,7 @@ const createRoom = async (req, res) => {
         const populatedRoom = await Room.findById(room._id).populate('createdBy participants', 'name email _id username');
 
         // Create activity for room creation
-        const Activity = require('../models/activityModel');
+        // const Activity = require('../models/activityModel'); // Already declared at top
 
         // Generate enhanced description
         const generateActivityDescription = (type, metadata, userName) => {
@@ -54,13 +54,26 @@ const createRoom = async (req, res) => {
             }
         };
 
-        await Activity.create({
+        const activity = await Activity.create({
             room: room._id,
             user: req.user._id,
             type: 'room_created',
             description: generateActivityDescription('room_created', { roomName: name }, req.user.username),
             metadata: { roomName: name }
         });
+
+        // Emit socket event for new activity
+        if (req.io) {
+            const populatedActivity = await Activity.findById(activity._id)
+                .populate('user', 'username email')
+                .populate('room', 'name');
+            req.io.emit('activityCreated', populatedActivity);
+        }
+
+        // Emit socket event for room creation
+        if (req.io) {
+            req.io.emit('roomCreated', populatedRoom);
+        }
 
         res.status(201).json(populatedRoom);
     }
@@ -126,8 +139,8 @@ const updateRoom = async (req, res) => {
         ).populate('createdBy participants', 'name email');
 
         // Create activity for room update
-        const Activity = require('../models/activityModel');
-        await Activity.create({
+        // const Activity = require('../models/activityModel'); // Already declared at top
+        const updateActivity = await Activity.create({
             room: req.params.roomId,
             user: req.user._id,
             type: 'room_updated',
@@ -137,6 +150,14 @@ const updateRoom = async (req, res) => {
                 updateDetails: 'room settings'
             }
         });
+
+        // Emit socket event for new activity
+        if (req.io) {
+            const populatedActivity = await Activity.findById(updateActivity._id)
+                .populate('user', 'username email')
+                .populate('room', 'name');
+            req.io.emit('activityCreated', populatedActivity);
+        }
 
         res.status(200).json(updatedRoom);
     }
@@ -173,7 +194,8 @@ const deleteRoom = async (req, res) => {
     const roomName = room.name;
 
     // Create activity for room deletion before deleting the room
-    await Activity.create({
+    // const Activity = require('../models/activityModel'); // Already declared at top
+    const deleteActivity = await Activity.create({
       room: roomId,
       user: req.user._id,
       type: 'room_deleted',
@@ -183,6 +205,14 @@ const deleteRoom = async (req, res) => {
         action: 'room_deleted'
       }
     });
+
+    // Emit socket event for new activity before deleting
+    if (req.io) {
+      const populatedActivity = await Activity.findById(deleteActivity._id)
+        .populate('user', 'username email')
+        .populate('room', 'name');
+      req.io.emit('activityCreated', populatedActivity);
+    }
 
     // Delete all files in the room
     await File.deleteMany({ room: roomId });

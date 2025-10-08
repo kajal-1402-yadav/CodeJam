@@ -50,7 +50,7 @@ const socketHandler = (io) => {
                         const room = await Room.findById(roomId).select('name');
                         const roomName = room?.name || 'Unknown Room';
 
-                        await Activity.create({
+                        const joinActivity = await Activity.create({
                             room: roomId,
                             user: user._id,
                             type: 'user_joined',
@@ -60,6 +60,13 @@ const socketHandler = (io) => {
                                 action: 'user_joined'
                             }
                         });
+
+                        // Emit socket event for new activity (global for dashboard)
+                        const populatedJoinActivity = await Activity.findById(joinActivity._id)
+                            .populate('user', 'username email')
+                            .populate('room', 'name');
+                        io.emit('activityCreated', populatedJoinActivity);
+
                         console.log(`Created activity for user ${user.email} joining room ${roomId}`);
                     } catch (activityError) {
                         console.error('Error creating join room activity:', activityError);
@@ -83,6 +90,21 @@ const socketHandler = (io) => {
 
                 // Broadcast updated user list to all users in the room
                 io.to(roomId).emit("roomUsers", Array.from(roomUsers[roomId]));
+
+                // Also emit to dashboard for participant count updates
+                io.emit("roomParticipantsUpdated", {
+                  roomId: roomId,
+                  participants: Array.from(roomUsers[roomId])
+                });
+
+                // If user wasn't already a participant, emit event for dashboard
+                const wasParticipant = room.participants && room.participants.some(p => p.toString() === user._id.toString());
+                if (!wasParticipant) {
+                  io.emit("userJoinedRoom", {
+                    roomId: roomId,
+                    room: populatedRoom
+                  });
+                }
 
                 // Note: user_joined activities are not stored in database (ephemeral only)
             } catch (error) {
@@ -168,7 +190,7 @@ const socketHandler = (io) => {
                 };
 
                 // Create activity for message sent
-                await Activity.create({
+                const messageActivity = await Activity.create({
                     room: roomId,
                     user: sender._id,
                     type: 'message_sent',
@@ -181,6 +203,12 @@ const socketHandler = (io) => {
                         roomName: room?.name || 'Unknown Room'
                     }
                 });
+
+                // Emit socket event for new activity (global for dashboard)
+                const populatedMessageActivity = await Activity.findById(messageActivity._id)
+                    .populate('user', 'username email')
+                    .populate('room', 'name');
+                io.emit('activityCreated', populatedMessageActivity);
 
                 const populatedChat = await newChat.populate('sender', 'username email _id');
                 io.to(roomId).emit("receiveMessage", populatedChat);
@@ -207,7 +235,7 @@ const socketHandler = (io) => {
                             const roomName = room?.name || 'Unknown Room';
 
                             if (file) {
-                                await Activity.create({
+                                const fileEditActivity = await Activity.create({
                                     room: roomId,
                                     user: file.createdBy._id,
                                     type: 'file_edited',
@@ -218,6 +246,13 @@ const socketHandler = (io) => {
                                         fileId: file._id
                                     }
                                 });
+
+                                // Emit socket event for new activity (global for dashboard)
+                                const populatedFileEditActivity = await Activity.findById(fileEditActivity._id)
+                                    .populate('user', 'username email')
+                                    .populate('room', 'name');
+                                io.emit('activityCreated', populatedFileEditActivity);
+
                                 console.log(`Created activity for file edit: ${file.name} in room ${roomId}`);
                             }
                         } catch (activityError) {
@@ -249,7 +284,7 @@ const socketHandler = (io) => {
                     // Get user info from socket
                     const user = socket.user || { username: 'User', _id: null };
 
-                    await Activity.create({
+                    const deleteActivity = await Activity.create({
                         room: roomId,
                         user: user._id,
                         type: 'file_deleted',
@@ -260,6 +295,13 @@ const socketHandler = (io) => {
                             fileId: fileId
                         }
                     });
+
+                    // Emit socket event for new activity (global for dashboard)
+                    const populatedDeleteActivity = await Activity.findById(deleteActivity._id)
+                        .populate('user', 'username email')
+                        .populate('room', 'name');
+                    io.emit('activityCreated', populatedDeleteActivity);
+
                     console.log(`Created activity for file deletion: ${fileName} in room ${roomId}`);
                 } catch (activityError) {
                     console.error('Error creating file deletion activity:', activityError);
@@ -287,7 +329,7 @@ const socketHandler = (io) => {
                     // Get user info from socket
                     const user = socket.user || { username: 'User', _id: null };
 
-                    await Activity.create({
+                    const renameActivity = await Activity.create({
                         room: roomId,
                         user: user._id,
                         type: 'file_renamed',
@@ -299,6 +341,13 @@ const socketHandler = (io) => {
                             fileId: fileId
                         }
                     });
+
+                    // Emit socket event for new activity (global for dashboard)
+                    const populatedRenameActivity = await Activity.findById(renameActivity._id)
+                        .populate('user', 'username email')
+                        .populate('room', 'name');
+                    io.emit('activityCreated', populatedRenameActivity);
+
                     console.log(`Created activity for file rename: ${oldName} -> ${newName} in room ${roomId}`);
                 } catch (activityError) {
                     console.error('Error creating file rename activity:', activityError);
@@ -355,7 +404,7 @@ const socketHandler = (io) => {
                     const room = await Room.findById(roomId).select('name');
                     const roomName = room?.name || 'Unknown Room';
 
-                    await Activity.create({
+                    const codeActivity = await Activity.create({
                         room: roomId,
                         user: userInfo._id,
                         type: 'code_executed',
@@ -368,6 +417,13 @@ const socketHandler = (io) => {
                             exitCode: null // Will be updated when execution completes
                         }
                     });
+
+                    // Emit socket event for new activity (global for dashboard)
+                    const populatedCodeActivity = await Activity.findById(codeActivity._id)
+                        .populate('user', 'username email')
+                        .populate('room', 'name');
+                    io.emit('activityCreated', populatedCodeActivity);
+
                     console.log(`Created activity for code execution: ${fileName} in room ${roomId}`);
                 } catch (activityError) {
                     console.error('Error creating code execution activity:', activityError);

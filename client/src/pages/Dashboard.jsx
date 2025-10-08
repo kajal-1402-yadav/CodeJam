@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
-import { Users, FilePlus, Bell, Plus, Search, Loader2, X, ExternalLink, Copy, Edit, Trash2 } from "lucide-react";
+import { Users, FilePlus, Bell, Plus, Search, Loader2, X, ExternalLink, Copy, Edit, Trash2, MoreHorizontal } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import useAuthContext from "../hooks/useAuthContext";
+import useSocket from "../hooks/useSocket";
 import { useNavigate } from "react-router-dom";
 
-const QuickStats = ({ rooms = [] }) => {
+const QuickStats = ({ rooms = [], filesCount = 0 }) => {
   const totalParticipants = rooms.reduce((sum, room) => sum + (room.participants?.length || 0), 0);
-  
+
   const stats = [
     {
       label: "Active Rooms",
@@ -20,7 +21,7 @@ const QuickStats = ({ rooms = [] }) => {
     },
     {
       label: "Files Shared",
-      value: 28, // This would need to be fetched from files API
+      value: filesCount,
       icon: FilePlus
     }
   ];
@@ -50,22 +51,72 @@ const QuickStats = ({ rooms = [] }) => {
 };
 
 const RoomCard = ({ room, onJoin, onEdit, onDelete, onCopy }) => {
+  const [showMenu, setShowMenu] = useState(false);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showMenu && !event.target.closest('.room-card')) {
+        setShowMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showMenu]);
+
   return (
-    <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-5 shadow-md flex flex-col justify-between transform hover:-translate-y-1 transition-transform duration-300 group">
-      <div>
-        <h3 className="text-white font-bold text-lg mb-1 group-hover:text-[#A78BFA] transition-colors">{room.name}</h3>
+    <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-5 shadow-md flex flex-col justify-between transform hover:-translate-y-1 transition-transform duration-300 group relative room-card">
+      <div className="relative">
+        <button
+          onClick={() => setShowMenu(!showMenu)}
+          className="absolute top-0 right-0 p-1 rounded-full hover:bg-gray-700 transition-colors z-10"
+        >
+          <MoreHorizontal size={16} className="text-gray-400 hover:text-white" />
+        </button>
+
+        <h3 className="text-white font-bold text-lg mb-1 group-hover:text-[#A78BFA] transition-colors pr-8">{room.name}</h3>
         <p className="text-gray-400 text-sm">Participants: {room.participants}</p>
         <p className="text-gray-500 text-xs mt-1">Created: {room.createdAt}</p>
+
+        {/* Dropdown Menu */}
+        {showMenu && (
+          <div className="absolute top-8 right-0 bg-[#1E1E1E] border border-gray-700 rounded-lg shadow-lg z-20 min-w-[120px]">
+            <button
+              onClick={() => {
+                onEdit(room);
+                setShowMenu(false);
+              }}
+              className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
+            >
+              <Edit size={14} />
+              Rename
+            </button>
+            <button
+              onClick={() => {
+                onDelete(room);
+                setShowMenu(false);
+              }}
+              className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-gray-700 hover:text-red-300 transition-colors flex items-center gap-2"
+            >
+              <Trash2 size={14} />
+              Delete
+            </button>
+          </div>
+        )}
       </div>
+
       <div className="mt-5 flex gap-3">
-        <button 
+        <button
           onClick={() => onJoin(room)}
           className="flex-1 rounded-lg bg-[#A78BFA] px-4 py-2 text-sm font-bold text-[#1E1E1E] hover:bg-[#A78BFA]/90 transition-colors flex items-center justify-center gap-2"
         >
           <ExternalLink size={16} />
           Join
         </button>
-        <button 
+        <button
           onClick={() => onCopy(room)}
           className="px-4 py-2 rounded-lg border border-gray-600 text-sm font-bold text-gray-300 hover:border-[#A78BFA] hover:text-white transition-colors flex items-center gap-2"
         >
@@ -88,6 +139,10 @@ const Dashboard = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [newRoomName, setNewRoomName] = useState("");
 
+  // New state for real-time data
+  const [filesCount, setFilesCount] = useState(0);
+  const [activities, setActivities] = useState([]);
+
   // Toast state for copy notifications
   const [showToast, setShowToast] = useState(false);
 
@@ -96,10 +151,157 @@ const Dashboard = () => {
   const [roomToDelete, setRoomToDelete] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Join room state
+  const [showJoinModal, setShowJoinModal] = useState(false);
+  const [roomCode, setRoomCode] = useState("");
+  const [isJoining, setIsJoining] = useState(false);
+  const [joinError, setJoinError] = useState("");
+
+  // Set up socket connection (no roomId for dashboard - just connect for global events)
+  const socket = useSocket();
+
   // Fetch rooms from backend
   useEffect(() => {
     fetchRooms();
   }, []);
+
+  // Fetch files count from all user's rooms
+  useEffect(() => {
+    if (user) {
+      fetchFilesCount();
+    }
+  }, [user]);
+
+  // Fetch recent activities
+  useEffect(() => {
+    if (user) {
+      fetchActivities();
+    }
+  }, [user]);
+
+  // Set up socket listeners for real-time updates
+  useEffect(() => {
+    if (socket) {
+      // Listen for new activities
+      socket.on('activityCreated', (newActivity) => {
+        setActivities(prev => [newActivity, ...prev.slice(0, 9)]); // Keep only latest 10
+      });
+
+      // Listen for room updates (participants joining/leaving)
+      socket.on('roomUsers', (users) => {
+        // Update room participant counts in real-time
+        setRooms(prev => prev.map(room => ({
+          ...room,
+          participants: users.length // This would need room-specific logic
+        })));
+      });
+
+      // Listen for room participant updates (when users join/leave)
+      socket.on('roomParticipantsUpdated', (data) => {
+        const { roomId, participants } = data;
+        setRooms(prev => prev.map(room =>
+          room._id === roomId
+            ? { ...room, participants }
+            : room
+        ));
+      });
+
+      // Listen for current user joining a room
+      socket.on('userJoinedRoom', (data) => {
+        const { roomId, room } = data;
+        // If this room isn't in our current rooms list, add it
+        setRooms(prev => {
+          const roomExists = prev.some(r => r._id === roomId);
+          if (!roomExists) {
+            return [room, ...prev];
+          }
+          return prev;
+        });
+      });
+
+      // Listen for new rooms created
+      socket.on('roomCreated', (newRoom) => {
+        if (newRoom.createdBy === user._id || newRoom.participants?.includes(user._id)) {
+          setRooms(prev => [newRoom, ...prev]);
+        }
+      });
+
+      // Listen for room deletions
+      socket.on('roomDeleted', (data) => {
+        setRooms(prev => prev.filter(room => room._id !== data.roomId));
+      });
+    }
+
+    return () => {
+      if (socket) {
+        socket.off('activityCreated');
+        socket.off('roomUsers');
+        socket.off('roomParticipantsUpdated');
+        socket.off('userJoinedRoom');
+        socket.off('roomCreated');
+        socket.off('roomDeleted');
+      }
+    };
+  }, [socket, user]);
+
+  const fetchFilesCount = async () => {
+    try {
+      // Get all user's rooms first
+      const roomsResponse = await fetch(`${import.meta.env?.VITE_API_URL || 'http://localhost:4000'}/api/rooms`, {
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
+
+      if (!roomsResponse.ok) {
+        throw new Error('Failed to fetch rooms for file count');
+      }
+
+      const userRooms = await roomsResponse.json();
+      let totalFiles = 0;
+
+      // Fetch file count for each room
+      for (const room of userRooms) {
+        try {
+          const filesResponse = await fetch(`${import.meta.env?.VITE_API_URL || 'http://localhost:4000'}/api/rooms/${room._id}/files`, {
+            headers: {
+              'Authorization': `Bearer ${user.token}`
+            }
+          });
+
+          if (filesResponse.ok) {
+            const files = await filesResponse.json();
+            totalFiles += files.length;
+          }
+        } catch (error) {
+          console.error(`Error fetching files for room ${room._id}:`, error);
+        }
+      }
+
+      setFilesCount(totalFiles);
+    } catch (error) {
+      console.error('Error fetching files count:', error);
+    }
+  };
+
+  const fetchActivities = async () => {
+    try {
+      const response = await fetch(`${import.meta.env?.VITE_API_URL || 'http://localhost:4000'}/api/activities?limit=10`, {
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch activities');
+      }
+
+      const data = await response.json();
+      setActivities(data);
+    } catch (error) {
+      console.error('Error fetching activities:', error);
+    }
+  };
 
   const fetchRooms = async () => {
     try {
@@ -170,6 +372,69 @@ const Dashboard = () => {
     navigate(`/room/${room._id}`);
   };
 
+  const handleJoinRoomModal = () => {
+    setShowJoinModal(true);
+    setRoomCode("");
+    setJoinError("");
+  };
+
+  const handleJoinRoomSubmit = async (e) => {
+    e.preventDefault();
+    if (!roomCode.trim()) {
+      setJoinError("Please enter a room ID or code");
+      return;
+    }
+
+    try {
+      setIsJoining(true);
+      setJoinError("");
+
+      // First, try to get the room by ID to verify it exists
+      const roomResponse = await fetch(`${import.meta.env?.VITE_API_URL || 'http://localhost:4000'}/api/rooms/${roomCode.trim()}`, {
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
+
+      if (!roomResponse.ok) {
+        if (roomResponse.status === 404) {
+          throw new Error('Room not found. Please check the room ID.');
+        }
+        throw new Error('Failed to join room. Please try again.');
+      }
+
+      const roomData = await roomResponse.json();
+
+      // Check if user is already a participant or creator
+      if (roomData.createdBy === user._id || roomData.participants?.includes(user._id)) {
+        setJoinError("You're already a member of this room.");
+        return;
+      }
+
+      // Join the room using socket
+      if (socket) {
+        socket.emit("joinRoom", {
+          roomId: roomData._id,
+          user: {
+            _id: user._id,
+            username: user.username,
+            email: user.email
+          }
+        });
+      }
+
+      // Navigate to the room
+      navigate(`/room/${roomData._id}`);
+      setShowJoinModal(false);
+
+    } catch (error) {
+      console.error('Error joining room:', error);
+      setJoinError(error.message || 'Failed to join room. Please try again.');
+    } finally {
+      setIsJoining(false);
+    }
+  };
+
   const handleEditRoom = (room) => {
     console.log("Editing room:", room.name);
     // For now, use prompt as placeholder - should be replaced with modal
@@ -237,8 +502,8 @@ const Dashboard = () => {
   };
 
   const handleCopyRoomLink = (room) => {
-    const roomLink = `${window.location.origin}/room/${room._id}`;
-    navigator.clipboard.writeText(roomLink);
+    // Copy only the room ID instead of the full URL
+    navigator.clipboard.writeText(room._id);
     setShowToast(true);
     setTimeout(() => setShowToast(false), 2000);
   };
@@ -293,14 +558,17 @@ const Dashboard = () => {
               >
                 <Plus size={16} /> Create Room
               </button>
-              <button className="rounded-xl bg-[#A78BFA]/20 px-6 py-3 text-base font-bold text-white border border-purple-500/30 ring-1 ring-inset ring-[#A78BFA]/30 hover:bg-[#A78BFA]/30 transition-colors">
+              <button 
+                onClick={handleJoinRoomModal}
+                className="rounded-xl bg-[#A78BFA]/20 px-6 py-3 text-base font-bold text-white border border-purple-500/30 ring-1 ring-inset ring-[#A78BFA]/30 hover:bg-[#A78BFA]/30 transition-colors"
+              >
                 Join Room
               </button>
             </div>
           </div>
         </div>
 
-        <QuickStats rooms={rooms} />
+        <QuickStats rooms={rooms} filesCount={filesCount} />
         
         {/* Error Message */}
         {error && (
@@ -387,17 +655,22 @@ const Dashboard = () => {
         <section className="mt-12">
           <h2 className="text-2xl font-bold text-white mb-5">Recent Activity</h2>
           <div className="space-y-3">
-            {[
-              { action: "Created room 'React Development Team'", time: "2 hours ago" },
-              { action: "Uploaded 'component-library.zip'", time: "4 hours ago" },
-              { action: "Joined 'Backend API Discussion'", time: "1 day ago" },
-              { action: "Shared file with team", time: "2 days ago" }
-            ].map((activity, i) => (
-              <div key={i} className="flex justify-between items-center p-4 rounded-lg bg-[#1E1E1E]/50 border border-gray-800">
-                <span className="text-white font-medium">{activity.action}</span>
-                <span className="text-gray-500 text-sm">{activity.time}</span>
+            {activities.length > 0 ? (
+              activities.map((activity, i) => (
+                <div key={activity._id || i} className="flex justify-between items-center p-4 rounded-lg bg-[#1E1E1E]/50 border border-gray-800">
+                  <span className="text-white font-medium">{activity.description}</span>
+                  <span className="text-gray-500 text-sm">
+                    {activity.createdAt ? new Date(activity.createdAt).toLocaleDateString() : 'Just now'}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div className="text-center py-8">
+                <Bell className="mx-auto text-gray-500 mb-4" size={32} />
+                <p className="text-gray-500 text-lg">No recent activity</p>
+                <p className="text-gray-400 text-sm mt-2">Activity will appear here as you collaborate in rooms</p>
               </div>
-            ))}
+            )}
           </div>
         </section>
 
@@ -476,12 +749,62 @@ const Dashboard = () => {
             </div>
           </div>
         )}
+
+        {/* Join Room Modal */}
+        {showJoinModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-[#1E1E1E] rounded-xl p-6 w-full max-w-md mx-4 border border-gray-800">
+              <h3 className="text-xl font-bold text-white mb-4">Join Room</h3>
+              <p className="text-gray-300 mb-4">
+                Enter a room ID to join an existing room. You can get the room ID from the room creator.
+              </p>
+
+              <form onSubmit={handleJoinRoomSubmit}>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Room ID
+                  </label>
+                  <input
+                    type="text"
+                    value={roomCode}
+                    onChange={(e) => setRoomCode(e.target.value)}
+                    className="w-full px-4 py-3 rounded-lg bg-[#1E1E1E] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#A78BFA] focus:border-transparent"
+                    placeholder="Enter room ID (e.g., 64f7a8b2c3d4e5f6789abcde)"
+                    required
+                  />
+                  {joinError && (
+                    <p className="text-red-400 text-sm mt-2">{joinError}</p>
+                  )}
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowJoinModal(false)}
+                    className="flex-1 px-4 py-3 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700 transition-colors"
+                    disabled={isJoining}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isJoining || !roomCode.trim()}
+                    className="flex-1 px-4 py-3 rounded-lg bg-[#A78BFA] text-[#1E1E1E] font-semibold hover:bg-[#A78BFA]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isJoining && <Loader2 className="animate-spin" size={16} />}
+                    {isJoining ? 'Joining...' : 'Join Room'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </main>
 
       {/* Toast Notification */}
       {showToast && (
         <div className="fixed top-4 right-4 bg-green-600 text-white px-4 py-3 rounded-lg shadow-lg z-50">
-          Room link copied to clipboard!
+          Room ID copied to clipboard!
         </div>
       )}
     </div>
