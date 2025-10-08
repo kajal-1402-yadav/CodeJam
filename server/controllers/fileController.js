@@ -100,9 +100,45 @@ const getFileById = async (req, res) => {
             return res.status(404).json({ error: "File not found" });
         }
 
+        // Check if this is a request for raw content (for HTML preview)
+        const acceptHeader = req.headers.accept || '';
+        const isRawRequest = req.headers['x-raw-content'] === 'true' ||
+                           acceptHeader.includes('text/') ||
+                           acceptHeader.includes('*/*');
+
+        if (isRawRequest) {
+            // Serve raw content with appropriate MIME type for HTML preview
+            const contentType = getContentType(file.filename);
+            res.setHeader('Content-Type', contentType);
+            res.setHeader('Cache-Control', 'no-cache');
+            return res.send(file.content);
+        }
+
+        // Return file metadata as JSON for normal API usage
         res.status(200).json(file);
     } catch (error) {
         res.status(400).json({ error: error.message });
+    }
+};
+
+// Helper function to determine content type based on file extension
+const getContentType = (filename) => {
+    const ext = filename.split('.').pop()?.toLowerCase();
+    switch (ext) {
+        case 'css': return 'text/css';
+        case 'js': return 'application/javascript';
+        case 'json': return 'application/json';
+        case 'html': return 'text/html';
+        case 'xml': return 'text/xml';
+        case 'txt': return 'text/plain';
+        case 'md': return 'text/markdown';
+        case 'py': return 'text/plain';
+        case 'java': return 'text/plain';
+        case 'c': return 'text/plain';
+        case 'cpp': return 'text/plain';
+        case 'h': return 'text/plain';
+        case 'hpp': return 'text/plain';
+        default: return 'text/plain';
     }
 };
 

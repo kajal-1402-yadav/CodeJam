@@ -73,10 +73,9 @@ const executeCode = async (req, res) => {
   } catch (error) {
     console.error('Execution error:', error);
     res.status(500).json({
-      error: 'Execution failed',
+      error: 'Code execution failed',
       details: error.message,
       output: '',
-      error: error.message,
       executionTime: 0
     });
   }
@@ -112,7 +111,7 @@ const executePython = (filePath) => {
     pythonProcess.on('error', (error) => {
       resolve({
         output: '',
-        error: `Process error: ${error.message}`,
+        error: `Python execution failed: ${error.message}. Make sure Python is installed on the server.`,
         exitCode: -1
       });
     });
@@ -149,7 +148,7 @@ const executeJavaScript = (filePath) => {
     nodeProcess.on('error', (error) => {
       resolve({
         output: '',
-        error: `Process error: ${error.message}`,
+        error: `Node.js execution failed: ${error.message}. Make sure Node.js is installed on the server.`,
         exitCode: -1
       });
     });
@@ -231,12 +230,13 @@ const executeC = (filePath, language) => {
       });
 
       executeProcess.on('error', async (error) => {
+        // Clean up executable
         try {
           await fs.unlink(outputFile);
         } catch (e) {}
         resolve({
           output: '',
-          error: `Execution error: ${error.message}`,
+          error: `C/C++ execution failed: ${error.message}. Make sure gcc/g++ is installed on the server.`,
           exitCode: -1
         });
       });

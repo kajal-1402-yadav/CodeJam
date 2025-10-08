@@ -50,6 +50,7 @@ const Topbar = ({
   activeFile,
   selectedLanguage,
   isSaving,
+  autoSaveStatus,
   isPreviewOpen,
   onSave,
   onRun,
@@ -78,6 +79,30 @@ const Topbar = ({
             <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none">
               ▾
             </div>
+          </div>
+        )}
+
+        {/* Auto-save status indicator */}
+        {activeFile && (
+          <div className="text-xs text-gray-400 flex items-center gap-1">
+            {autoSaveStatus === 'saving' && (
+              <>
+                <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
+                Saving...
+              </>
+            )}
+            {autoSaveStatus === 'saved' && (
+              <>
+                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                Auto-saved
+              </>
+            )}
+            {autoSaveStatus === 'error' && (
+              <>
+                <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                Save failed
+              </>
+            )}
           </div>
         )}
       </div>

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import Editor from "@monaco-editor/react";
-import { MessageSquare, ChevronRight, ChevronLeft, Send, Edit, Trash2, Folder as FolderIcon, Plus } from "lucide-react";
+import { useParams } from "react-router-dom";
+import { Edit, Trash2, Folder as FolderIcon, Plus } from "lucide-react";
 import FileExplorer from "../components/FileExplorer";
 import Topbar from "../components/Topbar";
 import Terminal from "../components/Terminal";
@@ -32,12 +31,10 @@ const languageByFilename = (name) => {
 
 export default function RoomEditor() {
   const { user } = useAuthContext();
-  const navigate = useNavigate();
   const socket = useSocket();
   const { id: roomId } = useParams();
 
   const [openTabs, setOpenTabs] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [files, setFiles] = useState([]);
   const [folders, setFolders] = useState([]);
   const [activeFileId, setActiveFileId] = useState(null);
@@ -55,52 +52,70 @@ export default function RoomEditor() {
   const [editingItem, setEditingItem] = useState(null);
   const [creatingIn, setCreatingIn] = useState(null);
   const [selectedLanguage, setSelectedLanguage] = useState("plaintext");
+  const [autoSaveStatus, setAutoSaveStatus] = useState('saved'); // 'saving', 'saved', 'error'
   const didWelcome = useRef(false);
-  const chatEndRef = useRef(null);
   const editorRef = useRef(null);
+
+  // ======== LocalStorage helpers ========
+const loadFromStorage = (key, defaultValue = null) => {
+  try {
+    const stored = localStorage.getItem(`${roomId}_${key}`);
+    return stored ? JSON.parse(stored) : defaultValue;
+  } catch {
+    return defaultValue;
+  }
+};
+
+const saveToStorage = (key, value) => {
+  try {
+    localStorage.setItem(`${roomId}_${key}`, JSON.stringify(value));
+  } catch (error) {
+    console.error('Failed to save to localStorage:', error);
+  }
+};
+
+const clearStorage = (key) => {
+  try { localStorage.removeItem(`${roomId}_${key}`); } catch {}
+};
+
+  const [tabContents, setTabContents] = useState(() => loadFromStorage('tabContents', {}));
   const activeFile = useMemo(() => files.find(f => f._id === activeFileId) || null, [files, activeFileId]);
   const openTabsData = useMemo(() => openTabs.map(tabId => files.find(f => f._id === tabId)).filter(Boolean), [openTabs, files]);
 
-  // Update file language in backend when user changes language
+  // Update selectedLanguage when active file changes
   useEffect(() => {
-    if (!activeFile || !selectedLanguage) return;
-
-    const updateFileLanguage = async () => {
-      try {
-        // Update file in backend
-        await api.put(`/api/rooms/${roomId}/files/${activeFile._id}`, {
-          language: selectedLanguage
-        });
-
-        // Update local file state
-        setFiles(prev => prev.map(f =>
-          f._id === activeFile._id ? { ...f, language: selectedLanguage } : f
-        ));
-
-        // Emit socket event for real-time updates
-        if (socket) {
-          socket.emit("updateFile", {
-            roomId,
-            fileId: activeFile._id,
-            newContent: activeContent,
-            language: selectedLanguage
-          });
-        }
-      } catch (error) {
-        console.error("Failed to update file language:", error);
-      }
-    };
-
-    // Only update if the language is different from current file language
-    if (selectedLanguage !== (activeFile.language || languageByFilename(activeFile.filename))) {
-      updateFileLanguage();
+    if (!activeFile) {
+      setSelectedLanguage("plaintext");
+      return;
     }
-  }, [selectedLanguage, activeFile, roomId, socket, activeContent]);
+
+    // Use file's stored language or detect from filename
+    const fileLanguage = activeFile.language || languageByFilename(activeFile.filename);
+
+    // Ensure the language is valid for Monaco Editor
+    const validMonacoLanguages = [
+      'plaintext', 'javascript', 'typescript', 'python', 'java', 'c', 'cpp',
+      'html', 'css', 'json', 'markdown', 'sql', 'php', 'ruby', 'go', 'rust',
+      'swift', 'kotlin', 'scala', 'r', 'matlab', 'shell', 'yaml', 'xml'
+    ];
+
+    const finalLanguage = validMonacoLanguages.includes(fileLanguage) ? fileLanguage : 'plaintext';
+
+    setSelectedLanguage(finalLanguage);
+  }, [activeFile]);
 
   useEffect(() => {
     if (!socket || !user) return;
     socket.emit("joinRoom", { roomId, user });
     return () => {
+      // Save current file before leaving
+      if (activeFileId && activeContent) {
+        api.put(`/api/rooms/${roomId}/files/${activeFileId}`, {
+          content: activeContent
+        }).catch(error => {
+          console.error('Failed to save file before leaving room:', error);
+        });
+      }
       socket.emit("leaveRoom", { roomId, user });
     };
   }, [socket, roomId, user]);
@@ -109,7 +124,6 @@ export default function RoomEditor() {
     const load = async () => {
       try {
         // Only show loading on first mount
-        if (!files.length) setIsLoading(true);
   
         const [filesRes, foldersRes, roomRes] = await Promise.all([
           api.get(`/api/rooms/${roomId}/files`),
@@ -120,27 +134,47 @@ export default function RoomEditor() {
         setFiles(filesRes.data);
         setFolders(foldersRes.data);
         setRoom(roomRes.data);
-  
+
         // Auto-select first file only on first load
         if (!activeFileId && filesRes.data.length) {
           const firstFile = filesRes.data[0];
-          setActiveFileId(firstFile._id);
-          setActiveContent(firstFile.content || "");
-          setOpenTabs([firstFile._id]);
-  
-          const isHtmlFile = firstFile.language === "html" || /\.html$/i.test(firstFile.filename);
-          if (isHtmlFile) {
-            setIsPreviewOpen(true);
-            setIsTerminalOpen(false);
-          } else {
-            setIsPreviewOpen(false);
-            setIsTerminalOpen(false);
+
+          // Get fresh content for the first file
+          try {
+            const response = await api.get(`/api/rooms/${roomId}/files/${firstFile._id}`);
+            const freshContent = response.data.content || "";
+
+            setActiveFileId(firstFile._id);
+            setActiveContent(freshContent);
+            setOpenTabs([firstFile._id]);
+
+            const isHtmlFile = firstFile.language === "html" || /\.html$/i.test(firstFile.filename);
+            if (isHtmlFile) {
+              setIsPreviewOpen(true);
+              setIsTerminalOpen(false);
+            } else {
+              setIsPreviewOpen(false);
+              setIsTerminalOpen(false);
+            }
+          } catch (error) {
+            console.error('Failed to load fresh content for first file:', error);
+            // Fallback to original content if fresh load fails
+            setActiveFileId(firstFile._id);
+            setActiveContent(firstFile.content || "");
+            setOpenTabs([firstFile._id]);
+
+            const isHtmlFile = firstFile.language === "html" || /\.html$/i.test(firstFile.filename);
+            if (isHtmlFile) {
+              setIsPreviewOpen(true);
+              setIsTerminalOpen(false);
+            } else {
+              setIsPreviewOpen(false);
+              setIsTerminalOpen(false);
+            }
           }
         }
       } catch (error) {
         console.error("Failed to load room data:", error);
-      } finally {
-        setIsLoading(false);
       }
     };
     load();
@@ -239,38 +273,74 @@ export default function RoomEditor() {
     };
   }, [socket, roomId]);
 
-  // Auto-scroll chat to bottom when new messages arrive
+  // Save file before page unload
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages]);
+    const handleBeforeUnload = () => {
+      if (activeFileId && activeContent) {
+        // Use sendBeacon for more reliable delivery
+        const data = JSON.stringify({
+          content: activeContent
+        });
 
-  const handleEditorMount = (editor) => {
-    editorRef.current = editor;
-  };
+        // Fallback to synchronous XMLHttpRequest if sendBeacon fails
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon(`/api/rooms/${roomId}/files/${activeFileId}`, data);
+        } else {
+          // Fallback for browsers that don't support sendBeacon
+          const xhr = new XMLHttpRequest();
+          xhr.open('PUT', `/api/rooms/${roomId}/files/${activeFileId}`, false);
+          xhr.setRequestHeader('Content-Type', 'application/json');
+          try {
+            xhr.send(data);
+          } catch (e) {
+            console.error('Failed to save on unload:', e);
+          }
+        }
+      }
+    };
 
-  const handleChange = (value) => {
-    setActiveContent(value ?? "");
-    if (socket && activeFile) {
-      socket.emit("updateFile", { roomId, fileId: activeFile._id, newContent: value ?? "" });
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [activeFileId, activeContent, roomId]);
+
+  const saveCurrentFile = async () => {
+    if (activeFileId && activeContent !== undefined) {
+      try {
+        await api.put(`/api/rooms/${roomId}/files/${activeFileId}`, { content: activeContent });
+      } catch (error) {
+        console.error('Failed to save current file:', error);
+      }
     }
   };
 
-  // Debounced version for performance
-  const debouncedHandleChange = useMemo(
-    () => {
-      let timeoutId;
-      return (value) => {
-        setActiveContent(value ?? "");
-        clearTimeout(timeoutId);
-        timeoutId = setTimeout(() => {
-          if (socket && activeFile) {
-            socket.emit("updateFile", { roomId, fileId: activeFile._id, newContent: value ?? "" });
+  // Debounced version for performance - save every 500ms to database for more responsive feel
+  const debouncedHandleChange = useMemo(() => {
+    let timeoutId;
+    return async (value) => {
+      setActiveContent(value ?? "");
+      updateTabContent(activeFileId, value ?? "");
+      setAutoSaveStatus('saved'); // reset status
+  
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(async () => {
+        if (activeFile && value !== undefined) {
+          try {
+            setAutoSaveStatus('saving');
+            await api.put(`/api/rooms/${roomId}/files/${activeFile._id}`, { content: value });
+  
+            setAutoSaveStatus('saved');
+            if (socket) {
+              socket.emit("updateFile", { roomId, fileId: activeFile._id, newContent: value });
+            }
+          } catch (error) {
+            console.error('Auto-save failed:', error);
+            setAutoSaveStatus('error');
           }
-        }, 300); // Debounce for 300ms
-      };
-    },
-    [socket, activeFile, roomId]
-  );
+        }
+      }, 500);
+    };
+  }, [socket, activeFile, roomId, activeFileId]);
+  
 
   const handleSave = async () => {
     if (!activeFile) return;
@@ -285,14 +355,17 @@ export default function RoomEditor() {
 
   const handleAddFile = async (filename, folderId = null) => {
     if (!filename) return;
-    const language = languageByFilename(filename);
+
+    const detectedLanguage = languageByFilename(filename);
+
     const res = await api.post(`/api/rooms/${roomId}/files`, {
       filename,
       content: "",
       uploadedBy: user._id,
-      language,
+      language: detectedLanguage,
       folder: folderId
     });
+
     setFiles(prev => [res.data, ...prev]);
     setActiveFileId(res.data._id);
     setActiveContent("");
@@ -319,6 +392,13 @@ export default function RoomEditor() {
   };
 
   const handleCloseTab = (fileId) => {
+    // Find the file being closed and save its content
+    const fileToClose = files.find(f => f._id === fileId);
+    if (fileToClose && fileToClose._id === activeFileId && activeContent) {
+      // Save current file content before closing
+      saveCurrentFile();
+    }
+
     setOpenTabs(prev => prev.filter(id => id !== fileId));
 
     // If closing the active tab, switch to another tab
@@ -346,20 +426,52 @@ export default function RoomEditor() {
     setTerminalLines([]);
   };
 
+  const appendTerminal = (text) => {
+    setTerminalLines(prev => [...prev, text]);
+  };
+
   const handleExecute = async () => {
     if (!activeFile) return;
+
     const payload = {
       code: activeContent,
       language: activeFile.language || languageByFilename(activeFile.filename),
       filename: activeFile.filename
     };
+
     setIsTerminalOpen(true); // Open terminal when running
     clearTerminal(); // Clear terminal before execution
     appendTerminal(`Running ${activeFile.filename} (${payload.language})...`);
-    const res = await api.post('/api/execute', payload);
-    if (res.data.output) appendTerminal(res.data.output.trim());
-    if (res.data.error) appendTerminal(res.data.error.trim());
-    appendTerminal(`Process exited with code ${res.data.exitCode} in ${res.data.executionTime}ms`);
+
+    try {
+      const res = await api.post('/api/execute', payload);
+
+      if (res.data.output) {
+        appendTerminal(res.data.output.trim());
+      }
+
+      if (res.data.error) {
+        appendTerminal(`Error: ${res.data.error.trim()}`);
+      }
+
+      if (res.data.error && res.data.error.includes('not installed')) {
+        appendTerminal('\n💡 Tip: Make sure Python/Node.js/compilers are installed on the server.');
+      }
+
+      appendTerminal(`Process exited with code ${res.data.exitCode} in ${res.data.executionTime}ms`);
+    } catch (error) {
+      console.error('Execution failed:', error);
+      appendTerminal(`❌ Execution failed: ${error.response?.data?.error || error.message}`);
+
+      if (error.response?.data?.details) {
+        appendTerminal(`Details: ${error.response.data.details}`);
+      }
+
+      appendTerminal('\n💡 This might be because:');
+      appendTerminal('• Runtime tools (Python, Node.js, compilers) are not installed on the server');
+      appendTerminal('• The server environment doesn\'t support code execution');
+      appendTerminal('• Network connectivity issues');
+    }
   };
 
   const toggleTerminal = () => {
@@ -374,6 +486,11 @@ export default function RoomEditor() {
   };
 
   const handleDeleteFile = async (file) => {
+    // If deleting the active file, save its content first
+    if (file._id === activeFileId && activeContent) {
+      await saveCurrentFile();
+    }
+
     await api.delete(`/api/rooms/${roomId}/files/${file._id}`);
     setFiles(prev => prev.filter(f => f._id !== file._id));
     setOpenTabs(prev => prev.filter(id => id !== file._id)); // Remove from open tabs
@@ -399,6 +516,12 @@ export default function RoomEditor() {
 
   const handleRenameFile = async (file, newName) => {
     if (!newName || newName === file.filename) return;
+
+    // If renaming the active file, save its content first
+    if (file._id === activeFileId && activeContent) {
+      await saveCurrentFile();
+    }
+
     await api.put(`/api/rooms/${roomId}/files/${file._id}`, { filename: newName });
     setFiles(prev => prev.map(f => f._id === file._id ? { ...f, filename: newName } : f));
     if (socket) {
@@ -426,6 +549,46 @@ export default function RoomEditor() {
     setContextMenu({ x: pageX, y: pageY, item, type });
   };
 
+  const updateTabContent = (fileId, content) => {
+    setTabContents(prev => {
+      const next = { ...prev, [fileId]: content };
+      saveToStorage('tabContents', next);
+      return next;
+    });
+  };
+  const switchToFile = async (fileId) => {
+    if (fileId === activeFileId) return;
+
+    // Save current tab content
+    if (activeFileId && activeContent !== undefined) {
+      updateTabContent(activeFileId, activeContent);
+      await saveCurrentFile();
+    }
+
+    const file = files.find(f => f._id === fileId);
+    if (!file) return;
+
+    // Load cached content first, fallback to DB fetch
+    const cached = tabContents[fileId];
+    if (cached !== undefined) {
+      setActiveContent(cached);
+    } else {
+      try {
+        const res = await api.get(`/api/rooms/${roomId}/files/${fileId}`);
+        setActiveContent(res.data.content || "");
+      } catch {
+        setActiveContent(file.content || "");
+      }
+    }
+
+    setActiveFileId(fileId);
+    setOpenTabs(prev => prev.includes(fileId) ? prev : [...prev, fileId]);
+
+    // Update preview/terminal
+    const isHtmlFile = file.language === 'html' || /\.html$/i.test(file.filename);
+    setIsPreviewOpen(isHtmlFile);
+    setIsTerminalOpen(false);
+  };
   return (
     <div className="flex h-screen overflow-hidden bg-[#1E1E1E] text-gray-200" onClick={() => setContextMenu(null)}>
       {contextMenu && (
@@ -510,12 +673,7 @@ export default function RoomEditor() {
         expandedFolders={expandedFolders}
         editingItem={editingItem}
         creatingIn={creatingIn}
-        onFileSelect={(fileId, content) => {
-          setActiveFileId(fileId);
-          setActiveContent(content);
-          // Add file to open tabs if not already there
-          setOpenTabs(prev => prev.includes(fileId) ? prev : [...prev, fileId]);
-        }}
+        onFileSelect={switchToFile}
         onToggleFolder={toggleFolder}
         onContextMenu={handleContextMenu}
         onSetEditingItem={setEditingItem}
@@ -539,6 +697,7 @@ export default function RoomEditor() {
             activeFile={activeFile}
             selectedLanguage={selectedLanguage}
             isSaving={isSaving}
+            autoSaveStatus={autoSaveStatus}
             isPreviewOpen={isPreviewOpen}
             onSave={handleSave}
             onRun={() => {
@@ -554,12 +713,7 @@ export default function RoomEditor() {
           <FileTabs
             files={openTabsData}
             activeFileId={activeFileId}
-            onFileSelect={(fileId, content) => {
-              setActiveFileId(fileId);
-              setActiveContent(content);
-              // Add file to open tabs if not already there
-              setOpenTabs(prev => prev.includes(fileId) ? prev : [...prev, fileId]);
-            }}
+            onFileSelect={switchToFile}
             onCloseFile={handleCloseTab}
           />
 
@@ -584,6 +738,7 @@ export default function RoomEditor() {
                 setTimeout(() => editor.focus(), 100);
               }}
               onContentChange={debouncedHandleChange}
+              roomId={roomId}
             />
           )}
         </div>
