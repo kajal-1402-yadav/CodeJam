@@ -82,11 +82,16 @@ const createRoom = async (req, res) => {
     }
 }
 
-// get all rooms (only rooms created by the current user)
+// get all rooms (rooms where current user is a participant or creator)
 const getRooms = async (req, res) => {
 
     try {
-        const rooms = await Room.find({ createdBy: req.user._id }).populate('createdBy participants', 'name email');
+        const rooms = await Room.find({
+            $or: [
+                { createdBy: req.user._id },
+                { participants: req.user._id }
+            ]
+        }).populate('createdBy participants', 'name email _id username');
         res.status(200).json(rooms);
     }
     catch (error) {

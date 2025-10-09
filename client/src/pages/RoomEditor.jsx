@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { Edit, Trash2, Folder as FolderIcon, Plus } from "lucide-react";
 import FileExplorer from "../components/FileExplorer";
 import Topbar from "../components/Topbar";
@@ -33,6 +33,7 @@ export default function RoomEditor() {
   const { user } = useAuthContext();
   const socket = useSocket();
   const { id: roomId } = useParams();
+  const navigate = useNavigate();
 
   const [openTabs, setOpenTabs] = useState([]);
   const [files, setFiles] = useState([]);
@@ -262,14 +263,22 @@ const clearStorage = (key) => {
       );
     };
 
+    const handleDeleted = ({ messageId }) => {
+      setChatMessages((prev) =>
+        prev.filter((m) => m._id !== messageId)
+      );
+    };
+
     socket.on("chatHistory", handleHistory);
     socket.on("receiveMessage", handleReceive);
     socket.on("messageUpdated", handleUpdated);
+    socket.on("messageDeleted", handleDeleted);
 
     return () => {
       socket.off("chatHistory", handleHistory);
       socket.off("receiveMessage", handleReceive);
       socket.off("messageUpdated", handleUpdated);
+      socket.off("messageDeleted", handleDeleted);
     };
   }, [socket, roomId]);
 
@@ -483,6 +492,16 @@ const clearStorage = (key) => {
     if (!trimmed || !socket) return;
     socket.emit("sendMessage", { roomId, message: trimmed, sender: user });
     setChatInput("");
+  };
+
+  const handleEditMessage = (messageId, newMessage) => {
+    if (!socket) return;
+    socket.emit("updateMessage", { roomId, messageId, message: newMessage, userId: user._id });
+  };
+
+  const handleDeleteMessage = (messageId) => {
+    if (!socket) return;
+    socket.emit("deleteMessage", { roomId, messageId, userId: user._id });
   };
 
   const handleDeleteFile = async (file) => {
@@ -755,6 +774,8 @@ const clearStorage = (key) => {
         onInputChange={setChatInput}
         onSendMessage={sendMessage}
         onToggleChat={() => setIsChatOpen(v => !v)}
+        onEditMessage={handleEditMessage}
+        onDeleteMessage={handleDeleteMessage}
         currentUser={user}
       />
     </div>

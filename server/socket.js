@@ -98,12 +98,17 @@ const socketHandler = (io) => {
                 });
 
                 // If user wasn't already a participant, emit event for dashboard
-                const wasParticipant = room.participants && room.participants.some(p => p.toString() === user._id.toString());
-                if (!wasParticipant) {
-                  io.emit("userJoinedRoom", {
-                    roomId: roomId,
-                    room: populatedRoom
-                  });
+                try {
+                    const room = await Room.findById(roomId);
+                    const wasParticipant = room && room.participants && room.participants.some(p => p.toString() === user._id.toString());
+                    if (!wasParticipant) {
+                      io.emit("userJoinedRoom", {
+                        roomId: roomId,
+                        room: room
+                      });
+                    }
+                } catch (error) {
+                    console.error('Error checking participant status:', error);
                 }
 
                 // Note: user_joined activities are not stored in database (ephemeral only)
@@ -364,21 +369,63 @@ const socketHandler = (io) => {
         // Handle message updates
         socket.on("updateMessage", async (updatedMessage) => {
             try {
+                // Find the message first to check ownership
+                const message = await Chat.findById(updatedMessage.messageId);
+
+                if (!message) {
+                    console.error('Message not found:', updatedMessage.messageId);
+                    return;
+                }
+
+                // Check if the current user is the sender of the message
+                if (message.sender.toString() !== updatedMessage.userId.toString()) {
+                    console.error('Unauthorized message update attempt');
+                    return;
+                }
+
                 const chat = await Chat.findByIdAndUpdate(
-                    updatedMessage._id,
-                    { 
+                    updatedMessage.messageId,
+                    {
                         message: updatedMessage.message,
                         isEdited: true,
                         updatedAt: new Date()
                     },
                     { new: true }
                 ).populate('sender', 'username email _id');
-                
+
                 if (chat) {
                     io.to(updatedMessage.roomId).emit("messageUpdated", chat);
                 }
             } catch (error) {
                 console.error("Error updating message:", error);
+            }
+        });
+
+        // Handle message deletion
+        socket.on("deleteMessage", async (deleteData) => {
+            try {
+                // Find the message first to check ownership
+                const message = await Chat.findById(deleteData.messageId);
+
+                if (!message) {
+                    console.error('Message not found:', deleteData.messageId);
+                    return;
+                }
+
+                // Check if the current user is the sender of the message
+                if (message.sender.toString() !== deleteData.userId.toString()) {
+                    console.error('Unauthorized message deletion attempt');
+                    return;
+                }
+
+                // Delete the message
+                await Chat.findByIdAndDelete(deleteData.messageId);
+
+                // Emit deletion event to all users in the room
+                io.to(deleteData.roomId).emit("messageDeleted", { messageId: deleteData.messageId });
+
+            } catch (error) {
+                console.error("Error deleting message:", error);
             }
         });
 
