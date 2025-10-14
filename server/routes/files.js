@@ -4,6 +4,7 @@ const {
     uploadFile,
     getFilesByRoom,
     getFileById,
+    getFileByName,
     updateFile,
     deleteFile
 } = require('../controllers/fileController');
@@ -18,6 +19,9 @@ router.post('/:roomId/files', uploadFile);
 
 // get all files in a room
 router.get('/:roomId/files', getFilesByRoom);
+
+// get file by filename (for HTML preview with external CSS/JS) - must be before :fileId route
+router.get('/:roomId/files/by-name/:filename', getFileByName);
 
 // get specific file content
 router.get('/:roomId/files/:fileId', getFileById);

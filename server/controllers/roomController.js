@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const Activity = require("../models/activityModel");
 const File = require("../models/fileModel");
 const Chat = require("../models/chatModel");
+const Folder = require("../models/folderModel");
 
 //create a room
 const createRoom = async (req, res) => {
@@ -35,6 +36,14 @@ const createRoom = async (req, res) => {
 
         // Populate the created room to ensure participants are included in response
         const populatedRoom = await Room.findById(room._id).populate('createdBy participants', 'name email _id username');
+
+        // Auto-create root folder with room name
+        await Folder.create({
+            room: room._id,
+            name: name,
+            parent: null, // Root folder
+            createdBy: req.user._id
+        });
 
         // Create activity for room creation
         // const Activity = require('../models/activityModel'); // Already declared at top

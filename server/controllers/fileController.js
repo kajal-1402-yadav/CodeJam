@@ -121,6 +121,35 @@ const getFileById = async (req, res) => {
     }
 };
 
+// get file by filename (for HTML preview with external CSS/JS)
+const getFileByName = async (req, res) => {
+    try {
+        const { roomId, filename } = req.params;
+
+        if (!mongoose.Types.ObjectId.isValid(roomId)) {
+            return res.status(400).json({ error: "Invalid room ID" });
+        }
+
+        const file = await File.findOne({
+            room: roomId,
+            filename: decodeURIComponent(filename)
+        });
+
+        if (!file) {
+            return res.status(404).json({ error: "File not found" });
+        }
+
+        // Always serve raw content with appropriate MIME type for HTML preview
+        const contentType = getContentType(file.filename);
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Access-Control-Allow-Origin', '*'); // Allow CORS for preview
+        return res.send(file.content);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
 // Helper function to determine content type based on file extension
 const getContentType = (filename) => {
     const ext = filename.split('.').pop()?.toLowerCase();
@@ -214,6 +243,7 @@ module.exports = {
     uploadFile,
     getFilesByRoom,
     getFileById,
+    getFileByName,
     updateFile,
     deleteFile
 };
