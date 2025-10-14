@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
-import { Clock, User, FileText, MessageSquare, Plus, Edit, Trash2, Code, Users, Activity as ActivityIcon } from "lucide-react";
-import useAuthContext from "../hooks/useAuthContext";
+import { useState, useEffect } from 'react';
+import { Activity, Clock, User, FileText, Folder, Users, MessageSquare } from 'lucide-react';
+import useAuthContext from '../hooks/useAuthContext';
+import { getActivities, getRoomActivities } from '../services/activityService';
 import { io } from "socket.io-client";
 
 const RoomActivity = ({ roomId, showAllActivities = false, maxItems = 5 }) => {
@@ -33,40 +34,29 @@ const RoomActivity = ({ roomId, showAllActivities = false, maxItems = 5 }) => {
   }, [showAllActivities]); // Only re-run when showAllActivities changes
 
   const fetchActivities = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
+    setIsLoading(true);
+    setError(null);
 
-      let url;
-      if (showAllActivities) {
-        // Get activities for all user's rooms
-        url = `${import.meta.env?.VITE_API_URL || 'http://localhost:4000'}/api/activities`;
-      } else if (roomId) {
-        // Get activities for specific room
-        url = `${import.meta.env?.VITE_API_URL || 'http://localhost:4000'}/api/rooms/${roomId}/activities`;
-      } else {
-        return;
-      }
-
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${user.token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch activities');
-      }
-
-      const data = await response.json();
-      setActivities(Array.isArray(data) ? data : data.activities || []);
-    } catch (error) {
-      console.error('Error fetching activities:', error);
-      setError(error.message);
-    } finally {
+    let result;
+    if (showAllActivities) {
+      // Get activities for all user's rooms
+      result = await getActivities();
+    } else if (roomId) {
+      // Get activities for specific room
+      result = await getRoomActivities(roomId);
+    } else {
       setIsLoading(false);
+      return;
     }
+
+    if (result.success) {
+      setActivities(Array.isArray(result.data) ? result.data : result.data.activities || []);
+    } else {
+      console.error('Error fetching activities:', result.error);
+      setError(result.error);
+    }
+    
+    setIsLoading(false);
   };
 
   const getActivityIcon = (type) => {

@@ -5,6 +5,7 @@ import Sidebar from "../components/Sidebar";
 import RoomActivity from "../components/RoomActivity";
 import useAuthContext from "../hooks/useAuthContext";
 import { io } from "socket.io-client";
+import { getAllRooms, createRoom, updateRoom, deleteRoom } from "../services/roomService";
 
 const RoomCard = ({ room, onEdit, onDelete, onJoin, onCopy }) => {
   const [showMenu, setShowMenu] = useState(false);
@@ -154,26 +155,18 @@ const Rooms = () => {
   }, []);
 
   const fetchRooms = async () => {
-    try {
-      setIsLoading(true);
-      const response = await fetch(`${import.meta.env?.VITE_API_URL || 'http://localhost:4000'}/api/rooms`, {
-        headers: {
-          'Authorization': `Bearer ${user.token}`
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch rooms');
-      }
-
-      const data = await response.json();
-      setRooms(data);
-    } catch (error) {
-      console.error('Error fetching rooms:', error);
-      setError(error.message);
-    } finally {
-      setIsLoading(false);
+    setIsLoading(true);
+    
+    const result = await getAllRooms();
+    
+    if (result.success) {
+      setRooms(result.data);
+    } else {
+      console.error('Error fetching rooms:', result.error);
+      setError(result.error);
     }
+    
+    setIsLoading(false);
   };
 
   const filteredRooms = rooms.filter(room =>
@@ -185,35 +178,23 @@ const Rooms = () => {
     e.preventDefault();
     if (!newRoomName.trim()) return;
 
-    try {
-      setIsCreating(true);
-      const response = await fetch(`${import.meta.env?.VITE_API_URL || 'http://localhost:4000'}/api/rooms`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
-        },
-        body: JSON.stringify({
-          name: newRoomName.trim(),
-          createdBy: user._id
-        })
-      });
+    setIsCreating(true);
+    
+    const result = await createRoom({
+      name: newRoomName.trim(),
+      createdBy: user._id
+    });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create room');
-      }
-
-      const newRoom = await response.json();
-      setRooms(prev => [newRoom, ...prev]);
+    if (result.success) {
+      setRooms(prev => [result.data, ...prev]);
       setNewRoomName("");
       setShowCreateModal(false);
-    } catch (error) {
-      console.error('Error creating room:', error);
-      setError(error.message);
-    } finally {
-      setIsCreating(false);
+    } else {
+      console.error('Error creating room:', result.error);
+      setError(result.error);
     }
+    
+    setIsCreating(false);
   };
 
   const handleJoinRoom = (room) => {
@@ -248,27 +229,14 @@ const Rooms = () => {
     }
   };
 
-  const updateRoom = async (roomId, updateData) => {
-    try {
-      const response = await fetch(`${import.meta.env?.VITE_API_URL || 'http://localhost:4000'}/api/rooms/${roomId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
-        },
-        body: JSON.stringify(updateData)
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to update room');
-      }
-
-      const updatedRoom = await response.json();
-      setRooms(prev => prev.map(room => room._id === roomId ? updatedRoom : room));
-    } catch (error) {
-      console.error('Error updating room:', error);
-      setError(error.message);
+  const handleUpdateRoom = async (roomId, updateData) => {
+    const result = await updateRoom(roomId, updateData);
+    
+    if (result.success) {
+      setRooms(prev => prev.map(room => room._id === roomId ? result.data : room));
+    } else {
+      console.error('Error updating room:', result.error);
+      setError(result.error);
     }
   };
 
@@ -280,29 +248,20 @@ const Rooms = () => {
   const confirmDeleteRoom = async () => {
     if (!roomToDelete) return;
 
-    try {
-      setIsDeleting(true);
-      const response = await fetch(`${import.meta.env?.VITE_API_URL || 'http://localhost:4000'}/api/rooms/${roomToDelete._id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${user.token}`
-        }
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to delete room');
-      }
-
+    setIsDeleting(true);
+    
+    const result = await deleteRoom(roomToDelete._id);
+    
+    if (result.success) {
       setRooms(prev => prev.filter(r => r._id !== roomToDelete._id));
       setShowDeleteModal(false);
       setRoomToDelete(null);
-    } catch (error) {
-      console.error('Error deleting room:', error);
-      setError(error.message);
-    } finally {
-      setIsDeleting(false);
+    } else {
+      console.error('Error deleting room:', result.error);
+      setError(result.error);
     }
+    
+    setIsDeleting(false);
   };
 
   const handleCopyRoomLink = (room) => {

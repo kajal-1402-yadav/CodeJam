@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { User, Mail, Lock, Save, X, Trash2, Settings, Shield } from "lucide-react";
 import useAuthContext from "../hooks/useAuthContext";
 import Sidebar from "../components/Sidebar";
+import { updateUserProfile, deleteUserAccount } from "../services/userService";
 
 const ManageAccount = () => {
   const { user, dispatch } = useAuthContext();
@@ -45,28 +46,17 @@ const ManageAccount = () => {
       return;
     }
 
-    try {
-      setIsDeleting(true);
-      const response = await fetch(`${import.meta.env?.VITE_API_URL || 'http://localhost:4000'}/api/users/profile`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${user.token}`
-        }
-      });
+    setIsDeleting(true);
+    
+    const result = await deleteUserAccount();
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to delete account');
-      }
-
+    if (result.success) {
       // Logout user after successful deletion
       dispatch({ type: 'LOGOUT' });
       localStorage.removeItem('user');
       navigate('/login');
-      
-    } catch (error) {
-      setError(error.message || 'Failed to delete account');
+    } else {
+      setError(result.error || 'Failed to delete account');
       setIsDeleting(false);
     }
   };
@@ -85,58 +75,34 @@ const ManageAccount = () => {
       return;
     }
 
-    try {
-      setIsLoading(true);
-      const response = await fetch(`${import.meta.env?.VITE_API_URL || 'http://localhost:4000'}/api/users/profile`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${user.token}`
-        },
-        body: JSON.stringify({
-          username: formData.username,
-          email: formData.email,
-          currentPassword: formData.currentPassword,
-          newPassword: formData.newPassword || undefined
-        })
-      });
+    setIsLoading(true);
+    
+    const result = await updateUserProfile({
+      username: formData.username,
+      email: formData.email,
+      currentPassword: formData.currentPassword,
+      newPassword: formData.newPassword || undefined
+    });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to update profile");
-      }
-
-      if (!data.user || !data.token) {
-        throw new Error("Invalid response from server");
-      }
-
-      // Update auth context with new user data and token
-      const updatedUser = { ...data.user, token: data.token };
-      
-      // Update context
-      dispatch({ type: "LOGIN", payload: updatedUser });
-      
-      // Update localStorage
+    if (result.success) {
+      // Update local storage and context with new user data
+      const updatedUser = { ...user, ...result.data };
       localStorage.setItem("user", JSON.stringify(updatedUser));
-      
+      dispatch({ type: "LOGIN", payload: updatedUser });
+
       setSuccess("Profile updated successfully!");
       setIsEditing(false);
-
-      // Clear password fields
-      setFormData(prev => ({
+      setFormData((prev) => ({
         ...prev,
         currentPassword: "",
         newPassword: "",
-        confirmPassword: ""
+        confirmPassword: "",
       }));
-    } catch (error) {
-      setError(
-        error.message || "An error occurred while updating your profile"
-      );
-    } finally {
-      setIsLoading(false);
+    } else {
+      setError(result.error || "Failed to update profile");
     }
+    
+    setIsLoading(false);
   };
 
   return (

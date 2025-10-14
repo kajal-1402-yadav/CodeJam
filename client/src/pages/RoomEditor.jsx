@@ -8,9 +8,12 @@ import ChatPanel from "../components/ChatPanel";
 import EditorArea from "../components/EditorArea";
 import FileTabs from "../components/FileTabs";
 import ContextMenu, { ContextMenuItem } from "../components/ContextMenu";
-import api from "../utils/axiosConfig";
 import useAuthContext from "../hooks/useAuthContext";
 import { useSocket } from "../context/SocketContext";
+import { getFilesByRoom, getFileById, createFile, updateFile, deleteFile } from "../services/fileService";
+import { getFoldersByRoom, createFolder, updateFolder, deleteFolder } from "../services/folderService";
+import { getRoomById } from "../services/roomService";
+import { executeCode } from "../services/executeService";
 
 const languageByFilename = (name) => {
   const ext = name.split(".").pop()?.toLowerCase();
@@ -109,70 +112,86 @@ const clearStorage = (key) => {
     if (!socket || !user) return;
     socket.emit("joinRoom", { roomId, user });
     return () => {
-      // Save current file before leaving
+      // Save current file before leaving - use synchronous approach for cleanup
       if (activeFileId && activeContent) {
-        api.put(`/api/rooms/${roomId}/files/${activeFileId}`, {
-          content: activeContent
-        }).catch(error => {
-          console.error('Failed to save file before leaving room:', error);
-        });
+        // Update localStorage immediately
+        try {
+          localStorage.setItem(`${roomId}_lastContent_${activeFileId}`, activeContent);
+        } catch (e) {
+          console.error('Failed to save to localStorage:', e);
+        }
+        
+        // Attempt to save to server (best effort)
+        updateFile(roomId, activeFileId, { content: activeContent })
+          .catch(error => {
+            console.error('Failed to save file before leaving room:', error);
+          });
       }
       socket.emit("leaveRoom", { roomId, user });
     };
-  }, [socket, roomId, user]);
+  }, [socket, roomId, user, activeFileId, activeContent]);
 
   useEffect(() => {
     const load = async () => {
       try {
-        // Only show loading on first mount
-  
         const [filesRes, foldersRes, roomRes] = await Promise.all([
-          api.get(`/api/rooms/${roomId}/files`),
-          api.get(`/api/rooms/${roomId}/folders`),
-          api.get(`/api/rooms/${roomId}`)
+          getFilesByRoom(roomId),
+          getFoldersByRoom(roomId),
+          getRoomById(roomId)
         ]);
+  
+        if (!filesRes.success || !foldersRes.success || !roomRes.success) {
+          console.error('Failed to load room data');
+          return;
+        }
   
         setFiles(filesRes.data);
         setFolders(foldersRes.data);
         setRoom(roomRes.data);
 
-        // Auto-select first file only on first load
-        if (!activeFileId && filesRes.data.length) {
-          const firstFile = filesRes.data[0];
+        // Try to restore last active file from localStorage
+        const lastActiveFileId = localStorage.getItem(`${roomId}_lastActiveFile`);
+        let fileToOpen = null;
+        
+        if (lastActiveFileId && filesRes.data.find(f => f._id === lastActiveFileId)) {
+          fileToOpen = filesRes.data.find(f => f._id === lastActiveFileId);
+        } else if (filesRes.data.length > 0) {
+          fileToOpen = filesRes.data[0];
+        }
 
-          // Get fresh content for the first file
-          try {
-            const response = await api.get(`/api/rooms/${roomId}/files/${firstFile._id}`);
-            const freshContent = response.data.content || "";
-
-            setActiveFileId(firstFile._id);
-            setActiveContent(freshContent);
-            setOpenTabs([firstFile._id]);
-
-            const isHtmlFile = firstFile.language === "html" || /\.html$/i.test(firstFile.filename);
-            if (isHtmlFile) {
-              setIsPreviewOpen(true);
-              setIsTerminalOpen(false);
+        if (fileToOpen) {
+          // Try to restore content from localStorage first
+          const savedContent = localStorage.getItem(`${roomId}_lastContent_${fileToOpen._id}`);
+          
+          if (savedContent !== null) {
+            // Use saved content from localStorage
+            setActiveFileId(fileToOpen._id);
+            setActiveContent(savedContent);
+            setOpenTabs([fileToOpen._id]);
+            
+            // Clean up the temporary save
+            localStorage.removeItem(`${roomId}_lastContent_${fileToOpen._id}`);
+          } else {
+            // Fetch fresh content from server
+            const response = await getFileById(roomId, fileToOpen._id);
+            
+            if (response.success) {
+              const freshContent = response.data.content || "";
+              setActiveFileId(fileToOpen._id);
+              setActiveContent(freshContent);
+              setOpenTabs([fileToOpen._id]);
             } else {
-              setIsPreviewOpen(false);
-              setIsTerminalOpen(false);
-            }
-          } catch (error) {
-            console.error('Failed to load fresh content for first file:', error);
-            // Fallback to original content if fresh load fails
-            setActiveFileId(firstFile._id);
-            setActiveContent(firstFile.content || "");
-            setOpenTabs([firstFile._id]);
-
-            const isHtmlFile = firstFile.language === "html" || /\.html$/i.test(firstFile.filename);
-            if (isHtmlFile) {
-              setIsPreviewOpen(true);
-              setIsTerminalOpen(false);
-            } else {
-              setIsPreviewOpen(false);
-              setIsTerminalOpen(false);
+              console.error('Failed to load file content:', response.error);
+              // Fallback to file object content
+              setActiveFileId(fileToOpen._id);
+              setActiveContent(fileToOpen.content || "");
+              setOpenTabs([fileToOpen._id]);
             }
           }
+
+          const isHtmlFile = fileToOpen.language === "html" || /\.html$/i.test(fileToOpen.filename);
+          setIsPreviewOpen(isHtmlFile);
+          setIsTerminalOpen(false);
         }
       } catch (error) {
         console.error("Failed to load room data:", error);
@@ -284,25 +303,36 @@ const clearStorage = (key) => {
 
   // Save file before page unload
   useEffect(() => {
-    const handleBeforeUnload = () => {
+    const handleBeforeUnload = (e) => {
       if (activeFileId && activeContent) {
-        // Use sendBeacon for more reliable delivery
+        // Save to localStorage immediately (synchronous and reliable)
+        try {
+          localStorage.setItem(`${roomId}_lastContent_${activeFileId}`, activeContent);
+          localStorage.setItem(`${roomId}_lastActiveFile`, activeFileId);
+        } catch (error) {
+          console.error('Failed to save to localStorage on unload:', error);
+        }
+
+        // Use sendBeacon for more reliable delivery to server
         const data = JSON.stringify({
           content: activeContent
         });
 
-        // Fallback to synchronous XMLHttpRequest if sendBeacon fails
-        if (navigator.sendBeacon) {
-          navigator.sendBeacon(`/api/rooms/${roomId}/files/${activeFileId}`, data);
-        } else {
-          // Fallback for browsers that don't support sendBeacon
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+        const beaconUrl = `${apiUrl}/api/rooms/${roomId}/files/${activeFileId}`;
+        
+        // Try sendBeacon first
+        const beaconSent = navigator.sendBeacon && navigator.sendBeacon(beaconUrl, new Blob([data], { type: 'application/json' }));
+        
+        if (!beaconSent) {
+          // Fallback to synchronous XMLHttpRequest
           const xhr = new XMLHttpRequest();
           xhr.open('PUT', `/api/rooms/${roomId}/files/${activeFileId}`, false);
           xhr.setRequestHeader('Content-Type', 'application/json');
           try {
             xhr.send(data);
-          } catch (e) {
-            console.error('Failed to save on unload:', e);
+          } catch (error) {
+            console.error('Failed to save on unload:', error);
           }
         }
       }
@@ -314,12 +344,17 @@ const clearStorage = (key) => {
 
   const saveCurrentFile = async () => {
     if (activeFileId && activeContent !== undefined) {
-      try {
-        await api.put(`/api/rooms/${roomId}/files/${activeFileId}`, { content: activeContent });
-      } catch (error) {
-        console.error('Failed to save current file:', error);
+      const result = await updateFile(roomId, activeFileId, { content: activeContent });
+      
+      if (result.success) {
+        return true; // Indicate success
+      } else {
+        console.error('Failed to save current file:', result.error);
+        setAutoSaveStatus('error');
+        return false; // Indicate failure
       }
     }
+    return true; // Nothing to save
   };
 
   // Debounced version for performance - save every 500ms to database for more responsive feel
@@ -333,16 +368,16 @@ const clearStorage = (key) => {
       clearTimeout(timeoutId);
       timeoutId = setTimeout(async () => {
         if (activeFile && value !== undefined) {
-          try {
-            setAutoSaveStatus('saving');
-            await api.put(`/api/rooms/${roomId}/files/${activeFile._id}`, { content: value });
+          setAutoSaveStatus('saving');
+          const result = await updateFile(roomId, activeFile._id, { content: value });
   
+          if (result.success) {
             setAutoSaveStatus('saved');
             if (socket) {
               socket.emit("updateFile", { roomId, fileId: activeFile._id, newContent: value });
             }
-          } catch (error) {
-            console.error('Auto-save failed:', error);
+          } else {
+            console.error('Auto-save failed:', result.error);
             setAutoSaveStatus('error');
           }
         }
@@ -354,12 +389,16 @@ const clearStorage = (key) => {
   const handleSave = async () => {
     if (!activeFile) return;
     setIsSaving(true);
-    try {
-      await api.put(`/api/rooms/${roomId}/files/${activeFile._id}`, { content: activeContent });
+    
+    const result = await updateFile(roomId, activeFile._id, { content: activeContent });
+    
+    if (result.success) {
       appendTerminal(`Saved ${activeFile.filename}`);
-    } finally {
-      setIsSaving(false);
+    } else {
+      appendTerminal(`Failed to save ${activeFile.filename}: ${result.error}`);
     }
+    
+    setIsSaving(false);
   };
 
   const handleAddFile = async (filename, folderId = null) => {
@@ -367,7 +406,7 @@ const clearStorage = (key) => {
 
     const detectedLanguage = languageByFilename(filename);
 
-    const res = await api.post(`/api/rooms/${roomId}/files`, {
+    const result = await createFile(roomId, {
       filename,
       content: "",
       uploadedBy: user._id,
@@ -375,21 +414,31 @@ const clearStorage = (key) => {
       folder: folderId
     });
 
-    setFiles(prev => [res.data, ...prev]);
-    setActiveFileId(res.data._id);
-    setActiveContent("");
-    setOpenTabs(prev => [res.data._id, ...prev]); // Add new file to open tabs
-    setCreatingIn(null); // Clear creating state after successful creation
-    appendTerminal(`Created file ${filename}`);
+    if (result.success) {
+      setFiles(prev => [result.data, ...prev]);
+      setActiveFileId(result.data._id);
+      setActiveContent("");
+      setOpenTabs(prev => [result.data._id, ...prev]); // Add new file to open tabs
+      setCreatingIn(null); // Clear creating state after successful creation
+      appendTerminal(`Created file ${filename}`);
+    } else {
+      appendTerminal(`Failed to create file ${filename}: ${result.error}`);
+    }
   };
 
   const handleAddFolder = async (name) => {
     if (!name) return;
-    const res = await api.post(`/api/rooms/${roomId}/folders`, { name, createdBy: user._id });
-    setFolders(prev => [...prev, res.data]);
-    setExpandedFolders(prev => new Set([...Array.from(prev), res.data._id]));
-    setCreatingIn(null); // Clear creating state after successful creation
-    appendTerminal(`Created folder ${name}`);
+    
+    const result = await createFolder(roomId, { name, createdBy: user._id });
+    
+    if (result.success) {
+      setFolders(prev => [...prev, result.data]);
+      setExpandedFolders(prev => new Set([...Array.from(prev), result.data._id]));
+      setCreatingIn(null); // Clear creating state after successful creation
+      appendTerminal(`Created folder ${name}`);
+    } else {
+      appendTerminal(`Failed to create folder ${name}: ${result.error}`);
+    }
   };
 
   const toggleFolder = (folderId) => {
@@ -400,13 +449,22 @@ const clearStorage = (key) => {
     });
   };
 
-  const handleCloseTab = (fileId) => {
+  const handleCloseTab = async (fileId) => {
     // Find the file being closed and save its content
     const fileToClose = files.find(f => f._id === fileId);
     if (fileToClose && fileToClose._id === activeFileId && activeContent) {
-      // Save current file content before closing
-      saveCurrentFile();
+      // Save current file content before closing and wait for completion
+      updateTabContent(activeFileId, activeContent);
+      await saveCurrentFile();
     }
+
+    // Clear the cached content for this tab
+    setTabContents(prev => {
+      const next = { ...prev };
+      delete next[fileId];
+      saveToStorage('tabContents', next);
+      return next;
+    });
 
     setOpenTabs(prev => prev.filter(id => id !== fileId));
 
@@ -420,8 +478,10 @@ const clearStorage = (key) => {
         const nextTabId = remainingTabs[nextIndex];
         const nextFile = files.find(f => f._id === nextTabId);
         if (nextFile) {
+          // Load content from cache or file object
+          const cachedContent = tabContents[nextTabId];
           setActiveFileId(nextTabId);
-          setActiveContent(nextFile.content || "");
+          setActiveContent(cachedContent !== undefined ? cachedContent : (nextFile.content || ""));
         }
       } else {
         // No tabs left, reset to null
@@ -440,7 +500,10 @@ const clearStorage = (key) => {
   };
 
   const handleExecute = async () => {
-    if (!activeFile) return;
+    if (!activeFile) {
+      appendTerminal('❌ No active file to execute');
+      return;
+    }
 
     const payload = {
       code: activeContent,
@@ -452,34 +515,42 @@ const clearStorage = (key) => {
     clearTerminal(); // Clear terminal before execution
     appendTerminal(`Running ${activeFile.filename} (${payload.language})...`);
 
-    try {
-      const res = await api.post('/api/execute', payload);
+    const result = await executeCode(payload);
 
-      if (res.data.output) {
-        appendTerminal(res.data.output.trim());
+    if (result.success) {
+      if (result.data.output) {
+        appendTerminal(result.data.output.trim());
       }
 
-      if (res.data.error) {
-        appendTerminal(`Error: ${res.data.error.trim()}`);
+      if (result.data.error) {
+        appendTerminal(`Error: ${result.data.error.trim()}`);
       }
 
-      if (res.data.error && res.data.error.includes('not installed')) {
+      if (result.data.error && result.data.error.includes('not installed')) {
         appendTerminal('\n💡 Tip: Make sure Python/Node.js/compilers are installed on the server.');
       }
 
-      appendTerminal(`Process exited with code ${res.data.exitCode} in ${res.data.executionTime}ms`);
-    } catch (error) {
-      console.error('Execution failed:', error);
-      appendTerminal(`❌ Execution failed: ${error.response?.data?.error || error.message}`);
+      appendTerminal(`Process exited with code ${result.data.exitCode} in ${result.data.executionTime}ms`);
+    } else {
+      appendTerminal(`❌ Execution failed: ${result.error}`);
 
-      if (error.response?.data?.details) {
-        appendTerminal(`Details: ${error.response.data.details}`);
+      if (result.details) {
+        appendTerminal(`Details: ${result.details}`);
       }
 
-      appendTerminal('\n💡 This might be because:');
-      appendTerminal('• Runtime tools (Python, Node.js, compilers) are not installed on the server');
-      appendTerminal('• The server environment doesn\'t support code execution');
-      appendTerminal('• Network connectivity issues');
+      // Provide specific error messages based on status code
+      if (result.status === 429) {
+        appendTerminal('❌ Rate limit exceeded. Please wait before running again.');
+      } else if (result.status === 413) {
+        appendTerminal('❌ Code too large to execute.');
+      } else if (result.status >= 500) {
+        appendTerminal('❌ Server error. Please try again later.');
+      } else {
+        appendTerminal('\n💡 This might be because:');
+        appendTerminal('• Runtime tools (Python, Node.js, compilers) are not installed on the server');
+        appendTerminal('• The server environment doesn\'t support code execution');
+        appendTerminal('• Network connectivity issues');
+      }
     }
   };
 
@@ -510,27 +581,35 @@ const clearStorage = (key) => {
       await saveCurrentFile();
     }
 
-    await api.delete(`/api/rooms/${roomId}/files/${file._id}`);
-    setFiles(prev => prev.filter(f => f._id !== file._id));
-    setOpenTabs(prev => prev.filter(id => id !== file._id)); // Remove from open tabs
-    if (activeFileId === file._id) {
-      const remainingTabs = openTabs.filter(id => id !== file._id);
-      if (remainingTabs.length > 0) {
-        const nextTabId = remainingTabs[0];
-        const nextFile = files.find(f => f._id === nextTabId);
-        if (nextFile) {
-          setActiveFileId(nextTabId);
-          setActiveContent(nextFile.content || "");
+    const result = await deleteFile(roomId, file._id);
+    
+    if (result.success) {
+      setFiles(prev => prev.filter(f => f._id !== file._id));
+      setOpenTabs(prev => prev.filter(id => id !== file._id)); // Remove from open tabs
+      
+      if (activeFileId === file._id) {
+        const remainingTabs = openTabs.filter(id => id !== file._id);
+        if (remainingTabs.length > 0) {
+          const nextTabId = remainingTabs[0];
+          const nextFile = files.find(f => f._id === nextTabId);
+          if (nextFile) {
+            setActiveFileId(nextTabId);
+            setActiveContent(nextFile.content || "");
+          }
+        } else {
+          setActiveFileId(null);
+          setActiveContent("");
         }
-      } else {
-        setActiveFileId(null);
-        setActiveContent("");
       }
+      
+      if (socket) {
+        socket.emit("deleteFile", { roomId, fileId: file._id, fileName: file.filename });
+      }
+      
+      appendTerminal(`Deleted file ${file.filename}`);
+    } else {
+      appendTerminal(`Failed to delete file ${file.filename}: ${result.error}`);
     }
-    if (socket) {
-      socket.emit("deleteFile", { roomId, fileId: file._id, fileName: file.filename });
-    }
-    appendTerminal(`Deleted file ${file.filename}`);
   };
 
   const handleRenameFile = async (file, newName) => {
@@ -541,25 +620,43 @@ const clearStorage = (key) => {
       await saveCurrentFile();
     }
 
-    await api.put(`/api/rooms/${roomId}/files/${file._id}`, { filename: newName });
-    setFiles(prev => prev.map(f => f._id === file._id ? { ...f, filename: newName } : f));
-    if (socket) {
-      socket.emit("renameFile", { roomId, fileId: file._id, oldName: file.filename, newName });
+    const result = await updateFile(roomId, file._id, { filename: newName });
+    
+    if (result.success) {
+      setFiles(prev => prev.map(f => f._id === file._id ? { ...f, filename: newName } : f));
+      
+      if (socket) {
+        socket.emit("renameFile", { roomId, fileId: file._id, oldName: file.filename, newName });
+      }
+      
+      appendTerminal(`Renamed file ${file.filename} -> ${newName}`);
+    } else {
+      appendTerminal(`Failed to rename file ${file.filename}: ${result.error}`);
     }
-    appendTerminal(`Renamed file ${file.filename} -> ${newName}`);
   };
 
   const handleRenameFolder = async (folder, newName) => {
     if (!newName || newName === folder.name) return;
-    await api.put(`/api/rooms/${roomId}/folders/${folder._id}`, { name: newName });
-    setFolders(prev => prev.map(f => f._id === folder._id ? { ...f, name: newName } : f));
-    appendTerminal(`Renamed folder ${folder.name} -> ${newName}`);
+    
+    const result = await updateFolder(roomId, folder._id, { name: newName });
+    
+    if (result.success) {
+      setFolders(prev => prev.map(f => f._id === folder._id ? { ...f, name: newName } : f));
+      appendTerminal(`Renamed folder ${folder.name} -> ${newName}`);
+    } else {
+      appendTerminal(`Failed to rename folder ${folder.name}: ${result.error}`);
+    }
   };
 
   const handleDeleteFolder = async (folder) => {
-    await api.delete(`/api/rooms/${roomId}/folders/${folder._id}`);
-    setFolders(prev => prev.filter(f => f._id !== folder._id));
-    appendTerminal(`Deleted folder ${folder.name}`);
+    const result = await deleteFolder(roomId, folder._id);
+    
+    if (result.success) {
+      setFolders(prev => prev.filter(f => f._id !== folder._id));
+      appendTerminal(`Deleted folder ${folder.name}`);
+    } else {
+      appendTerminal(`Failed to delete folder ${folder.name}: ${result.error}`);
+    }
   };
 
   const handleContextMenu = (e, item, type = 'file') => {
@@ -578,10 +675,15 @@ const clearStorage = (key) => {
   const switchToFile = async (fileId) => {
     if (fileId === activeFileId) return;
 
-    // Save current tab content
+    // Save current tab content and wait for completion
     if (activeFileId && activeContent !== undefined) {
       updateTabContent(activeFileId, activeContent);
-      await saveCurrentFile();
+      const saveSuccess = await saveCurrentFile();
+      
+      if (!saveSuccess) {
+        console.warn('Failed to save current file before switching');
+        // Continue anyway, but user has been warned via autoSaveStatus
+      }
     }
 
     const file = files.find(f => f._id === fileId);
@@ -591,16 +693,23 @@ const clearStorage = (key) => {
     const cached = tabContents[fileId];
     if (cached !== undefined) {
       setActiveContent(cached);
+      setActiveFileId(fileId);
     } else {
-      try {
-        const res = await api.get(`/api/rooms/${roomId}/files/${fileId}`);
-        setActiveContent(res.data.content || "");
-      } catch {
+      const result = await getFileById(roomId, fileId);
+      
+      if (result.success) {
+        const freshContent = result.data.content || "";
+        setActiveContent(freshContent);
+        setActiveFileId(fileId);
+        // Cache the fresh content
+        updateTabContent(fileId, freshContent);
+      } else {
+        console.error('Failed to fetch file content:', result.error);
         setActiveContent(file.content || "");
+        setActiveFileId(fileId);
       }
     }
 
-    setActiveFileId(fileId);
     setOpenTabs(prev => prev.includes(fileId) ? prev : [...prev, fileId]);
 
     // Update preview/terminal
