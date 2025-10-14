@@ -14,7 +14,6 @@ const ChatPanel = ({
 }) => {
   const chatEndRef = useRef(null);
   const [editingMessageId, setEditingMessageId] = useState(null);
-  const [editingText, setEditingText] = useState("");
   const [showMessageMenu, setShowMessageMenu] = useState(null);
 
   // Auto-scroll chat to bottom when new messages arrive
@@ -24,20 +23,28 @@ const ChatPanel = ({
 
   const handleEditStart = (message) => {
     setEditingMessageId(message._id);
-    setEditingText(message.message);
+    onInputChange(message.message); // Use main input box
     setShowMessageMenu(null);
   };
 
   const handleEditCancel = () => {
     setEditingMessageId(null);
-    setEditingText("");
+    onInputChange(""); // Clear input
   };
 
   const handleEditSave = () => {
-    if (editingText.trim() && onEditMessage) {
-      onEditMessage(editingMessageId, editingText.trim());
+    if (inputValue.trim() && onEditMessage && editingMessageId) {
+      onEditMessage(editingMessageId, inputValue.trim());
+      setEditingMessageId(null);
+      onInputChange(""); // Clear input after save
     }
-    handleEditCancel();
+  };
+
+  const handleDelete = (messageId) => {
+    if (onDeleteMessage) {
+      onDeleteMessage(messageId);
+    }
+    setShowMessageMenu(null);
   };
 
   // Close message menu when clicking outside
@@ -58,8 +65,8 @@ const ChatPanel = ({
 
   return (
     <>
-      <div className="fixed  right-0 top-0 h-full w-96 bg-[#1E1E1E]/90 border-l border-gray-800 transform transition-transform duration-300 translate-x-0 z-20">
-        <div className="h-12 border-b border-gray-800 flex items-center justify-between px-3 bg-[#1E1E1E]/5">
+      <div className="fixed right-0 top-0 h-full w-96 bg-[#1E1E1E] border-l border-gray-800 transform transition-transform duration-300 translate-x-0 z-20 flex flex-col">
+        <div className="h-14 border-b border-gray-800 flex items-center justify-between px-4 bg-[#1E1E1E] flex-shrink-0">
           <div className="flex items-center gap-2">
             <MessageSquare size={16} />
             <span className="text-sm font-semibold">Room Chat</span>
@@ -70,7 +77,7 @@ const ChatPanel = ({
         </div>
 
         {/* Chat Messages */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-3">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-3" style={{ height: 'calc(100vh - 14rem)' }}>
           {messages.map((m) => {
             const isSelf =
               m?.sender?._id === currentUser?._id ||
@@ -116,7 +123,7 @@ const ChatPanel = ({
 
                       {/* Dropdown menu */}
                       {showMessageMenu === m._id && (
-                        <div className="absolute top-6 right-0 w-24 bg-[#2D2D2D] rounded-md shadow-lg z-10 border border-gray-700 message-menu-container">
+                        <div className="absolute top-6 right-0 w-28 bg-[#2D2D2D] rounded-md shadow-xl z-50 border border-gray-700 message-menu-container overflow-hidden">
                           <button
                             onClick={() => handleEditStart(m)}
                             className="flex items-center w-full px-3 py-2 text-xs text-gray-200 hover:bg-gray-700"
@@ -135,42 +142,17 @@ const ChatPanel = ({
                   )}
                 </div>
 
-                {/* Message content - either editing or display mode */}
+                {/* Message content */}
                 {isEditing ? (
-                  <div className="w-full">
-                    <textarea
-                      value={editingText}
-                      onChange={(e) => setEditingText(e.target.value)}
-                      className="w-full px-3 py-2 rounded-md bg-[#1E1E1E] border border-gray-600 outline-none text-gray-200 text-sm resize-none"
-                      rows={2}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          handleEditSave();
-                        } else if (e.key === 'Escape') {
-                          handleEditCancel();
-                        }
-                      }}
-                      autoFocus
-                    />
-                    <div className="flex gap-2 mt-2">
-                      <button
-                        onClick={handleEditSave}
-                        className="px-3 py-1 text-xs bg-[#A78BFA] text-[#1E1E1E] rounded hover:bg-purple-500"
-                      >
-                        Save
-                      </button>
-                      <button
-                        onClick={handleEditCancel}
-                        className="px-3 py-1 text-xs bg-gray-600 text-gray-200 rounded hover:bg-gray-700"
-                      >
-                        Cancel
-                      </button>
+                  <div className="w-full px-4 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-sm text-yellow-200">
+                    <div className="flex items-center gap-2">
+                      <Edit size={14} />
+                      <span>Editing... Use input box below</span>
                     </div>
                   </div>
                 ) : (
                   <div
-                    className={`px-4 py-2 rounded-lg text-sm whitespace-pre-wrap ${
+                    className={`px-4 py-2 rounded-lg text-sm whitespace-pre-wrap break-words ${
                       isSelf
                         ? "bg-[#A78BFA] text-[#1E1E1E]"
                         : "bg-[#1E1E1E] border border-gray-800 text-gray-100"
@@ -186,26 +168,58 @@ const ChatPanel = ({
         </div>
 
         {/* Input Bar */}
-        <div className="fixed bottom-0 right-0 w-96 bg-[#1E1E1E]/95 border-l border-gray-800 flex items-center gap-2 p-3 z-30">
-        <input
-            value={inputValue}
-            onChange={(e) => onInputChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                onSendMessage();
-              }
-            }}
-            className="flex-1 px-3 py-2 rounded-md bg-[#1E1E1E] border border-gray-800 outline-none text-gray-200 placeholder-gray-400"
-            placeholder="Type a message..."
-          />
-          <button
-            onClick={onSendMessage}
-            className="px-4 py-2 rounded-md bg-[#A78BFA] text-[#1E1E1E] font-medium inline-flex items-center gap-2 hover:bg-purple-500"
-          >
-            <Send size={16} />
-            Send
-          </button>
+        <div className="border-t border-gray-800 bg-[#1E1E1E] p-4 flex-shrink-0">
+          {editingMessageId && (
+            <div className="mb-2 px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-xs text-yellow-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Edit size={14} />
+                <span>Editing message</span>
+              </div>
+              <button
+                onClick={handleEditCancel}
+                className="text-yellow-200 hover:text-yellow-100"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <input
+              value={inputValue}
+              onChange={(e) => onInputChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (editingMessageId) {
+                    handleEditSave();
+                  } else {
+                    onSendMessage();
+                  }
+                } else if (e.key === "Escape" && editingMessageId) {
+                  handleEditCancel();
+                }
+              }}
+              className="flex-1 px-4 py-2.5 rounded-lg bg-[#2D2D2D] border border-gray-700 outline-none text-gray-200 placeholder-gray-500 focus:border-[#A78BFA] focus:ring-1 focus:ring-[#A78BFA] transition-colors"
+              placeholder={editingMessageId ? "Edit your message..." : "Type a message..."}
+            />
+            <button
+              onClick={editingMessageId ? handleEditSave : onSendMessage}
+              disabled={!inputValue.trim()}
+              className="px-4 py-2.5 rounded-lg bg-[#A78BFA] text-[#1E1E1E] font-semibold inline-flex items-center gap-2 hover:bg-[#8B5CF6] transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-[#A78BFA]/20"
+            >
+              {editingMessageId ? (
+                <>
+                  <Edit size={16} />
+                  Update
+                </>
+              ) : (
+                <>
+                  <Send size={16} />
+                  Send
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 

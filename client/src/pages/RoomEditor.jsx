@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Edit, Trash2, Folder as FolderIcon, Plus } from "lucide-react";
 import FileExplorer from "../components/FileExplorer";
@@ -59,6 +59,7 @@ export default function RoomEditor() {
   const [autoSaveStatus, setAutoSaveStatus] = useState('saved'); // 'saving', 'saved', 'error'
   const didWelcome = useRef(false);
   const editorRef = useRef(null);
+  const saveTimeoutRef = useRef(null);
 
   // ======== LocalStorage helpers ========
 const loadFromStorage = (key, defaultValue = null) => {
@@ -108,25 +109,32 @@ const clearStorage = (key) => {
     setSelectedLanguage(finalLanguage);
   }, [activeFile]);
 
+  // Join/leave room with proper cleanup
   useEffect(() => {
     if (!socket || !user) return;
+    
     socket.emit("joinRoom", { roomId, user });
+    
     return () => {
       // Save current file before leaving - use synchronous approach for cleanup
-      if (activeFileId && activeContent) {
+      const currentActiveFileId = activeFileId;
+      const currentActiveContent = activeContent;
+      
+      if (currentActiveFileId && currentActiveContent) {
         // Update localStorage immediately
         try {
-          localStorage.setItem(`${roomId}_lastContent_${activeFileId}`, activeContent);
+          localStorage.setItem(`${roomId}_lastContent_${currentActiveFileId}`, currentActiveContent);
         } catch (e) {
           console.error('Failed to save to localStorage:', e);
         }
         
         // Attempt to save to server (best effort)
-        updateFile(roomId, activeFileId, { content: activeContent })
+        updateFile(roomId, currentActiveFileId, { content: currentActiveContent })
           .catch(error => {
             console.error('Failed to save file before leaving room:', error);
           });
       }
+      
       socket.emit("leaveRoom", { roomId, user });
     };
   }, [socket, roomId, user, activeFileId, activeContent]);
@@ -149,43 +157,96 @@ const clearStorage = (key) => {
         setFolders(foldersRes.data);
         setRoom(roomRes.data);
 
-        // Try to restore last active file from localStorage
-        const lastActiveFileId = localStorage.getItem(`${roomId}_lastActiveFile`);
-        let fileToOpen = null;
-        
-        if (lastActiveFileId && filesRes.data.find(f => f._id === lastActiveFileId)) {
-          fileToOpen = filesRes.data.find(f => f._id === lastActiveFileId);
-        } else if (filesRes.data.length > 0) {
-          fileToOpen = filesRes.data[0];
+        // Auto-expand root folder (folder with room name and no parent)
+        const rootFolder = foldersRes.data.find(f => !f.parent && f.name === roomRes.data.name);
+        if (rootFolder) {
+          setExpandedFolders(prev => new Set([...Array.from(prev), rootFolder._id]));
         }
 
-        if (fileToOpen) {
-          // Try to restore content from localStorage first
-          const savedContent = localStorage.getItem(`${roomId}_lastContent_${fileToOpen._id}`);
+        // Restore open tabs from localStorage
+        const savedOpenTabs = loadFromStorage('openTabs', []);
+        const savedActiveFileId = loadFromStorage('activeFileId', null);
+        const savedTabContents = loadFromStorage('tabContents', {});
+        
+        // Filter out tabs for files that no longer exist
+        const validTabs = savedOpenTabs.filter(tabId => 
+          filesRes.data.find(f => f._id === tabId)
+        );
+        
+        // Determine which file to open
+        let fileToOpen = null;
+        let tabsToOpen = [];
+        let activeFileIdToSet = null;
+        
+        if (validTabs.length > 0) {
+          // Restore previously open tabs
+          tabsToOpen = validTabs;
+          
+          // Try to restore the previously active file
+          if (savedActiveFileId && validTabs.includes(savedActiveFileId)) {
+            fileToOpen = filesRes.data.find(f => f._id === savedActiveFileId);
+            activeFileIdToSet = savedActiveFileId;
+          } else {
+            // Active file was closed, use first tab
+            fileToOpen = filesRes.data.find(f => f._id === validTabs[0]);
+            activeFileIdToSet = validTabs[0];
+          }
+        } else {
+          // No saved tabs, open first file if available
+          if (filesRes.data.length > 0) {
+            fileToOpen = filesRes.data[0];
+            tabsToOpen = [fileToOpen._id];
+            activeFileIdToSet = fileToOpen._id;
+          }
+        }
+
+        if (fileToOpen && activeFileIdToSet) {
+          // Try to restore content from localStorage first (for unsaved changes)
+          const savedContent = localStorage.getItem(`${roomId}_lastContent_${activeFileIdToSet}`);
           
           if (savedContent !== null) {
-            // Use saved content from localStorage
-            setActiveFileId(fileToOpen._id);
+            // Use saved content from localStorage (unsaved changes)
+            setActiveFileId(activeFileIdToSet);
             setActiveContent(savedContent);
-            setOpenTabs([fileToOpen._id]);
+            setOpenTabs(tabsToOpen);
+            
+            // Restore cached tab contents
+            if (Object.keys(savedTabContents).length > 0) {
+              setTabContents(savedTabContents);
+            }
             
             // Clean up the temporary save
-            localStorage.removeItem(`${roomId}_lastContent_${fileToOpen._id}`);
+            localStorage.removeItem(`${roomId}_lastContent_${activeFileIdToSet}`);
           } else {
-            // Fetch fresh content from server
-            const response = await getFileById(roomId, fileToOpen._id);
+            // Check if we have cached content
+            const cachedContent = savedTabContents[activeFileIdToSet];
             
-            if (response.success) {
-              const freshContent = response.data.content || "";
-              setActiveFileId(fileToOpen._id);
-              setActiveContent(freshContent);
-              setOpenTabs([fileToOpen._id]);
+            if (cachedContent !== undefined) {
+              // Use cached content
+              setActiveFileId(activeFileIdToSet);
+              setActiveContent(cachedContent);
+              setOpenTabs(tabsToOpen);
+              setTabContents(savedTabContents);
             } else {
-              console.error('Failed to load file content:', response.error);
-              // Fallback to file object content
-              setActiveFileId(fileToOpen._id);
-              setActiveContent(fileToOpen.content || "");
-              setOpenTabs([fileToOpen._id]);
+              // Fetch fresh content from server
+              const response = await getFileById(roomId, activeFileIdToSet);
+              
+              if (response.success) {
+                const freshContent = response.data.content || "";
+                setActiveFileId(activeFileIdToSet);
+                setActiveContent(freshContent);
+                setOpenTabs(tabsToOpen);
+                
+                // Initialize tab contents with fresh content
+                const initialTabContents = { [activeFileIdToSet]: freshContent };
+                setTabContents(initialTabContents);
+              } else {
+                console.error('Failed to load file content:', response.error);
+                // Fallback to file object content
+                setActiveFileId(activeFileIdToSet);
+                setActiveContent(fileToOpen.content || "");
+                setOpenTabs(tabsToOpen);
+              }
             }
           }
 
@@ -201,47 +262,87 @@ const clearStorage = (key) => {
   }, [roomId]);
   
 
-  // Optimize useEffect dependencies to prevent unnecessary re-renders
+  // Socket event handlers with proper dependencies
+  const handleFileUpdated = useCallback(({ fileId, newContent, userId }) => {
+    // Don't update if this update came from the current user (avoid overwriting local changes)
+    if (userId === user?._id) {
+      return;
+    }
+    
+    setFiles(prev => prev.map(f => f._id === fileId ? { ...f, content: newContent } : f));
+    
+    // Only update active content if this file is NOT currently being edited
+    setActiveFileId(currentActiveId => {
+      if (currentActiveId === fileId) {
+        // Check if user is actively typing (has unsaved changes)
+        // If so, don't overwrite their work
+        setActiveContent(currentContent => {
+          // Only update if content hasn't changed locally
+          return currentContent === newContent ? newContent : currentContent;
+        });
+      }
+      return currentActiveId;
+    });
+  }, [user]);
+
+  const handleFileRenamed = useCallback(({ fileId, newName }) => {
+    setFiles(prev => prev.map(f => f._id === fileId ? { ...f, filename: newName } : f));
+  }, []);
+
+  const handleFileDeleted = useCallback(({ fileId }) => {
+    setFiles(prev => prev.filter(f => f._id !== fileId));
+    
+    // Remove from open tabs
+    setOpenTabs(prevTabs => {
+      const newTabs = prevTabs.filter(id => id !== fileId);
+      
+      // If the deleted file was active, switch to another tab
+      setActiveFileId(currentActiveId => {
+        if (currentActiveId === fileId) {
+          if (newTabs.length > 0) {
+            const nextTabId = newTabs[0];
+            // Get the next file's content from files state
+            setFiles(currentFiles => {
+              const nextFile = currentFiles.find(f => f._id === nextTabId);
+              if (nextFile) {
+                setActiveContent(nextFile.content || "");
+              }
+              return currentFiles;
+            });
+            return nextTabId;
+          } else {
+            setActiveContent("");
+            return null;
+          }
+        }
+        return currentActiveId;
+      });
+      
+      return newTabs;
+    });
+  }, []);
+
+  // Register socket event listeners
   useEffect(() => {
     if (!socket) return;
-    const onFileUpdated = ({ fileId, newContent }) => {
-      setFiles(prev => prev.map(f => f._id === fileId ? { ...f, content: newContent } : f));
-      if (fileId === activeFileId) setActiveContent(newContent);
-    };
-    const onFileRenamed = ({ fileId, newName }) => {
-      setFiles(prev => prev.map(f => f._id === fileId ? { ...f, filename: newName } : f));
-    };
-    const onFileDeleted = ({ fileId }) => {
-      setFiles(prev => prev.filter(f => f._id !== fileId));
-      setOpenTabs(prev => prev.filter(id => id !== fileId)); // Remove from open tabs
-      if (activeFileId === fileId) {
-        const remainingTabs = openTabs.filter(id => id !== fileId);
-        if (remainingTabs.length > 0) {
-          const nextTabId = remainingTabs[0];
-          const nextFile = files.find(f => f._id === nextTabId);
-          if (nextFile) {
-            setActiveFileId(nextTabId);
-            setActiveContent(nextFile.content || "");
-          }
-        } else {
-          setActiveFileId(null);
-          setActiveContent("");
-        }
-      }
-    };
-    socket.on("fileUpdated", onFileUpdated);
-    socket.on("fileRenamed", onFileRenamed);
-    socket.on("fileDeleted", onFileDeleted);
+
+    socket.on("fileUpdated", handleFileUpdated);
+    socket.on("fileRenamed", handleFileRenamed);
+    socket.on("fileDeleted", handleFileDeleted);
+
     return () => {
-      socket.off("fileUpdated", onFileUpdated);
-      socket.off("fileRenamed", onFileRenamed);
-      socket.off("fileDeleted", onFileDeleted);
+      socket.off("fileUpdated", handleFileUpdated);
+      socket.off("fileRenamed", handleFileRenamed);
+      socket.off("fileDeleted", handleFileDeleted);
     };
-  }, [socket, activeFileId]); // Removed files dependency to prevent stale closures
+  }, [socket, handleFileUpdated, handleFileRenamed, handleFileDeleted]);
     
   // Auto-adjust preview/terminal based on file type when switching files
   useEffect(() => {
-    if (!activeFile) return;
+    if (!activeFile) {
+      setIsPreviewOpen(false);
+      return;
+    }
 
     const isHtmlFile = activeFile.language === "html" || /\.html$/i.test(activeFile.filename);
     if (isHtmlFile) {
@@ -253,73 +354,79 @@ const clearStorage = (key) => {
       setIsTerminalOpen(false);
     }
   }, [activeFile]);
+  // Chat event handlers with proper dependencies
+  const handleChatHistory = useCallback((history) => {
+    const list = history || [];
+    if (!didWelcome.current) {
+      didWelcome.current = true;
+      const welcome = {
+        _id: `welcome-${roomId}`,
+        sender: { username: "System" },
+        message: "Welcome to the room! Share files, edit code, and chat in real-time.",
+        createdAt: new Date().toISOString(),
+      };
+      setChatMessages([welcome, ...list]);
+    } else {
+      setChatMessages(list);
+    }
+  }, [roomId]);
+
+  const handleReceiveMessage = useCallback((msg) => {
+    setChatMessages((prev) => [...prev, msg]);
+  }, []);
+
+  const handleMessageUpdated = useCallback((msg) => {
+    setChatMessages((prev) =>
+      prev.map((m) => (m._id === msg._id ? msg : m))
+    );
+  }, []);
+
+  const handleMessageDeleted = useCallback(({ messageId }) => {
+    setChatMessages((prev) =>
+      prev.filter((m) => m._id !== messageId)
+    );
+  }, []);
+
+  // Register chat socket event listeners
   useEffect(() => {
     if (!socket) return;
 
-    const handleHistory = (history) => {
-      const list = history || [];
-      if (!didWelcome.current) {
-        didWelcome.current = true;
-        const welcome = {
-          _id: `welcome-${roomId}`,
-          sender: { username: "System" },
-          message: "Welcome to the room! Share files, edit code, and chat in real-time.",
-          createdAt: new Date().toISOString(),
-        };
-        setChatMessages([welcome, ...list]);
-      } else {
-        setChatMessages(list);
-      }
-    };
-
-    const handleReceive = (msg) => {
-      setChatMessages((prev) => [...prev, msg]);
-    };
-
-    const handleUpdated = (msg) => {
-      setChatMessages((prev) =>
-        prev.map((m) => (m._id === msg._id ? msg : m))
-      );
-    };
-
-    const handleDeleted = ({ messageId }) => {
-      setChatMessages((prev) =>
-        prev.filter((m) => m._id !== messageId)
-      );
-    };
-
-    socket.on("chatHistory", handleHistory);
-    socket.on("receiveMessage", handleReceive);
-    socket.on("messageUpdated", handleUpdated);
-    socket.on("messageDeleted", handleDeleted);
+    socket.on("chatHistory", handleChatHistory);
+    socket.on("receiveMessage", handleReceiveMessage);
+    socket.on("messageUpdated", handleMessageUpdated);
+    socket.on("messageDeleted", handleMessageDeleted);
 
     return () => {
-      socket.off("chatHistory", handleHistory);
-      socket.off("receiveMessage", handleReceive);
-      socket.off("messageUpdated", handleUpdated);
-      socket.off("messageDeleted", handleDeleted);
+      socket.off("chatHistory", handleChatHistory);
+      socket.off("receiveMessage", handleReceiveMessage);
+      socket.off("messageUpdated", handleMessageUpdated);
+      socket.off("messageDeleted", handleMessageDeleted);
     };
-  }, [socket, roomId]);
+  }, [socket, handleChatHistory, handleReceiveMessage, handleMessageUpdated, handleMessageDeleted]);
 
   // Save file before page unload
   useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      if (activeFileId && activeContent) {
+    const handleBeforeUnload = () => {
+      // Capture current values at the time of unload
+      const currentActiveFileId = activeFileId;
+      const currentActiveContent = activeContent;
+      
+      if (currentActiveFileId && currentActiveContent) {
         // Save to localStorage immediately (synchronous and reliable)
         try {
-          localStorage.setItem(`${roomId}_lastContent_${activeFileId}`, activeContent);
-          localStorage.setItem(`${roomId}_lastActiveFile`, activeFileId);
+          localStorage.setItem(`${roomId}_lastContent_${currentActiveFileId}`, currentActiveContent);
+          localStorage.setItem(`${roomId}_lastActiveFile`, currentActiveFileId);
         } catch (error) {
           console.error('Failed to save to localStorage on unload:', error);
         }
 
         // Use sendBeacon for more reliable delivery to server
         const data = JSON.stringify({
-          content: activeContent
+          content: currentActiveContent
         });
 
         const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-        const beaconUrl = `${apiUrl}/api/rooms/${roomId}/files/${activeFileId}`;
+        const beaconUrl = `${apiUrl}/api/rooms/${roomId}/files/${currentActiveFileId}`;
         
         // Try sendBeacon first
         const beaconSent = navigator.sendBeacon && navigator.sendBeacon(beaconUrl, new Blob([data], { type: 'application/json' }));
@@ -327,7 +434,7 @@ const clearStorage = (key) => {
         if (!beaconSent) {
           // Fallback to synchronous XMLHttpRequest
           const xhr = new XMLHttpRequest();
-          xhr.open('PUT', `/api/rooms/${roomId}/files/${activeFileId}`, false);
+          xhr.open('PUT', `/api/rooms/${roomId}/files/${currentActiveFileId}`, false);
           xhr.setRequestHeader('Content-Type', 'application/json');
           try {
             xhr.send(data);
@@ -357,32 +464,48 @@ const clearStorage = (key) => {
     return true; // Nothing to save
   };
 
-  // Debounced version for performance - save every 500ms to database for more responsive feel
-  const debouncedHandleChange = useMemo(() => {
-    let timeoutId;
-    return async (value) => {
-      setActiveContent(value ?? "");
-      updateTabContent(activeFileId, value ?? "");
-      setAutoSaveStatus('saved'); // reset status
-  
-      clearTimeout(timeoutId);
-      timeoutId = setTimeout(async () => {
-        if (activeFile && value !== undefined) {
-          setAutoSaveStatus('saving');
-          const result = await updateFile(roomId, activeFile._id, { content: value });
-  
-          if (result.success) {
-            setAutoSaveStatus('saved');
-            if (socket) {
-              socket.emit("updateFile", { roomId, fileId: activeFile._id, newContent: value });
-            }
-          } else {
-            console.error('Auto-save failed:', result.error);
-            setAutoSaveStatus('error');
-          }
-        }
-      }, 500);
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
     };
+  }, []);
+
+  // Debounced version for performance - save every 500ms to database for more responsive feel
+  const debouncedHandleChange = useCallback(async (value) => {
+    setActiveContent(value ?? "");
+    updateTabContent(activeFileId, value ?? "");
+    setAutoSaveStatus('saved'); // reset status
+
+    // Clear any existing timeout
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    // Set new timeout
+    saveTimeoutRef.current = setTimeout(async () => {
+      if (activeFile && value !== undefined) {
+        setAutoSaveStatus('saving');
+        const result = await updateFile(roomId, activeFile._id, { content: value });
+
+        if (result.success) {
+          setAutoSaveStatus('saved');
+          if (socket && user) {
+            socket.emit("updateFile", { 
+              roomId, 
+              fileId: activeFile._id, 
+              newContent: value,
+              userId: user._id 
+            });
+          }
+        } else {
+          console.error('Auto-save failed:', result.error);
+          setAutoSaveStatus('error');
+        }
+      }
+    }, 500);
   }, [socket, activeFile, roomId, activeFileId]);
   
 
@@ -426,16 +549,32 @@ const clearStorage = (key) => {
     }
   };
 
-  const handleAddFolder = async (name) => {
+  const handleAddFolder = async (name, parentFolderId = null) => {
     if (!name) return;
     
-    const result = await createFolder(roomId, { name, createdBy: user._id });
+    const folderData = { 
+      name, 
+      createdBy: user._id
+    };
+    
+    // Add parent folder if creating a subfolder
+    if (parentFolderId) {
+      folderData.parent = parentFolderId;
+    }
+    
+    const result = await createFolder(roomId, folderData);
     
     if (result.success) {
       setFolders(prev => [...prev, result.data]);
       setExpandedFolders(prev => new Set([...Array.from(prev), result.data._id]));
+      
+      // Also expand parent folder if creating subfolder
+      if (parentFolderId) {
+        setExpandedFolders(prev => new Set([...Array.from(prev), parentFolderId]));
+      }
+      
       setCreatingIn(null); // Clear creating state after successful creation
-      appendTerminal(`Created folder ${name}`);
+      appendTerminal(`Created folder ${name}${parentFolderId ? ' (subfolder)' : ''}`);
     } else {
       appendTerminal(`Failed to create folder ${name}: ${result.error}`);
     }
@@ -450,6 +589,12 @@ const clearStorage = (key) => {
   };
 
   const handleCloseTab = async (fileId) => {
+    // Clear any pending auto-save timeout if closing active file
+    if (fileId === activeFileId && saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+
     // Find the file being closed and save its content
     const fileToClose = files.find(f => f._id === fileId);
     if (fileToClose && fileToClose._id === activeFileId && activeContent) {
@@ -672,8 +817,27 @@ const clearStorage = (key) => {
       return next;
     });
   };
+  
+  // Save open tabs and active file to localStorage whenever they change
+  useEffect(() => {
+    if (openTabs.length > 0) {
+      saveToStorage('openTabs', openTabs);
+    }
+  }, [openTabs, roomId]);
+  
+  useEffect(() => {
+    if (activeFileId) {
+      saveToStorage('activeFileId', activeFileId);
+    }
+  }, [activeFileId, roomId]);
   const switchToFile = async (fileId) => {
     if (fileId === activeFileId) return;
+
+    // Clear any pending auto-save timeout
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
 
     // Save current tab content and wait for completion
     if (activeFileId && activeContent !== undefined) {
@@ -867,6 +1031,8 @@ const clearStorage = (key) => {
               }}
               onContentChange={debouncedHandleChange}
               roomId={roomId}
+              files={files}
+              activeFileId={activeFileId}
             />
           )}
         </div>

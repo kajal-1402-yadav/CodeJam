@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Activity, Clock, User, FileText, Folder, Users, MessageSquare } from 'lucide-react';
+import { Activity, Clock, User, FileText, Folder, Users, MessageSquare, Trash2, Edit, Plus, Code } from 'lucide-react';
 import useAuthContext from '../hooks/useAuthContext';
 import { getActivities, getRoomActivities } from '../services/activityService';
 import { io } from "socket.io-client";
@@ -81,7 +81,7 @@ const RoomActivity = ({ roomId, showAllActivities = false, maxItems = 5 }) => {
         return <Trash2 size={16} className="text-red-500" />;
       // Temporary activities (user_joined, user_left) are not shown in history
       default:
-        return <ActivityIcon size={16} className="text-gray-500" />;
+        return <Activity size={16} className="text-gray-500" />;
     }
   };
 
@@ -136,7 +136,7 @@ const RoomActivity = ({ roomId, showAllActivities = false, maxItems = 5 }) => {
   if (displayActivities.length === 0) {
     return (
       <div className="text-center py-8">
-        <ActivityIcon size={48} className="mx-auto text-gray-500 mb-4" />
+        <Activity size={48} className="mx-auto text-gray-500 mb-4" />
         <p className="text-gray-500">No recent activities</p>
       </div>
     );

@@ -1,4 +1,4 @@
-import { useRef, Suspense, lazy } from "react";
+import { useRef, Suspense, lazy, useState, useEffect } from "react";
 
 // Lazy load Monaco Editor for better performance
 const MonacoEditor = lazy(() => import("@monaco-editor/react"));
@@ -9,55 +9,77 @@ const EditorArea = ({
   isPreviewOpen,
   onEditorMount,
   onContentChange,
-  roomId
+  roomId,
+  files = [],
+  activeFileId
 }) => {
   const editorRef = useRef(null);
+  const [previewKey, setPreviewKey] = useState(0);
+  const [cachedHtmlContent, setCachedHtmlContent] = useState(null);
+  const [cachedHtmlFileId, setCachedHtmlFileId] = useState(null);
+
+  // When files change, check if any CSS/JS files were updated that affect the current HTML preview
+  useEffect(() => {
+    if (isPreviewOpen && cachedHtmlFileId) {
+      // Debounce preview refresh slightly to avoid too many updates
+      const timer = setTimeout(() => {
+        setPreviewKey(prev => prev + 1);
+      }, 300); // 300ms debounce for preview updates
+      
+      return () => clearTimeout(timer);
+    }
+  }, [files, isPreviewOpen, cachedHtmlFileId]);
+
+  // Cache the HTML content and file ID when viewing HTML
+  useEffect(() => {
+    if (isPreviewOpen && selectedLanguage === 'html') {
+      setCachedHtmlContent(activeContent);
+      setCachedHtmlFileId(activeFileId);
+    }
+  }, [activeContent, selectedLanguage, isPreviewOpen, activeFileId]);
 
   const handleEditorMount = (editor) => {
     editorRef.current = editor;
     onEditorMount(editor);
   };
 
-  // Function to replace relative paths with full API URLs
+  // Function to inline external CSS/JS files from the same room
   const processHtmlContent = (htmlContent) => {
-    if (!roomId || !htmlContent) return htmlContent;
+    if (!roomId || !htmlContent || !files.length) return htmlContent;
 
     // Create a temporary div to parse HTML
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = htmlContent;
 
-    // Replace relative paths in various attributes
-    const replacePaths = (element, attributes) => {
-      attributes.forEach(attr => {
-        if (element.hasAttribute(attr)) {
-          const value = element.getAttribute(attr);
-          // Check if it's a relative path (doesn't start with http/https, /, or #)
-          if (value && !value.startsWith('http://') && !value.startsWith('https://') &&
-              !value.startsWith('/') && !value.startsWith('#') && !value.startsWith('data:')) {
-            // For HTML preview, we'll handle the requests through a special mechanism
-            // The browser will make requests to these URLs, and our modified backend
-            // will serve the raw content with proper MIME types
-            const fullUrl = `/api/rooms/${roomId}/files/${encodeURIComponent(value)}`;
-            element.setAttribute(attr, fullUrl);
-          }
+    // Find all link tags with CSS files
+    const linkTags = tempDiv.querySelectorAll('link[rel="stylesheet"]');
+    linkTags.forEach(link => {
+      const href = link.getAttribute('href');
+      if (href && !href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('/')) {
+        // Find the CSS file in the files array
+        const cssFile = files.find(f => f.filename === href || f.filename === href.split('/').pop());
+        if (cssFile && cssFile.content) {
+          // Replace link tag with inline style tag
+          const styleTag = document.createElement('style');
+          styleTag.textContent = cssFile.content;
+          link.parentNode.replaceChild(styleTag, link);
         }
-      });
-    };
+      }
+    });
 
-    // Process different types of elements that can have relative paths
-    const elements = tempDiv.querySelectorAll('link[href], script[src], img[src], a[href], source[src]');
-
-    elements.forEach(element => {
-      if (element.tagName === 'LINK' && element.hasAttribute('href')) {
-        replacePaths(element, ['href']);
-      } else if (element.tagName === 'SCRIPT' && element.hasAttribute('src')) {
-        replacePaths(element, ['src']);
-      } else if (element.tagName === 'IMG' && element.hasAttribute('src')) {
-        replacePaths(element, ['src']);
-      } else if (element.tagName === 'A' && element.hasAttribute('href')) {
-        replacePaths(element, ['href']);
-      } else if (element.tagName === 'SOURCE' && element.hasAttribute('src')) {
-        replacePaths(element, ['src']);
+    // Find all script tags with external JS files
+    const scriptTags = tempDiv.querySelectorAll('script[src]');
+    scriptTags.forEach(script => {
+      const src = script.getAttribute('src');
+      if (src && !src.startsWith('http://') && !src.startsWith('https://') && !src.startsWith('/')) {
+        // Find the JS file in the files array
+        const jsFile = files.find(f => f.filename === src || f.filename === src.split('/').pop());
+        if (jsFile && jsFile.content) {
+          // Replace script tag with inline script
+          const inlineScript = document.createElement('script');
+          inlineScript.textContent = jsFile.content;
+          script.parentNode.replaceChild(inlineScript, script);
+        }
       }
     });
 
@@ -80,7 +102,10 @@ const EditorArea = ({
             onChange={onContentChange}
             onMount={handleEditorMount}
             options={{
+              // Basic editor settings
               fontSize: 14,
+              fontFamily: "'Fira Code', 'Cascadia Code', 'Consolas', 'Monaco', monospace",
+              fontLigatures: true,
               minimap: { enabled: false },
               readOnly: false,
               automaticLayout: true,
@@ -88,29 +113,55 @@ const EditorArea = ({
               wordWrap: 'on',
               lineNumbers: 'on',
               renderWhitespace: 'selection',
+              
+              // Cursor and animation
               cursorBlinking: 'smooth',
               cursorSmoothCaretAnimation: 'on',
-              smoothScrolling: false, // Disabled for performance
-              mouseWheelZoom: false, // Disabled for performance
-              quickSuggestions: false, // Disabled for performance
-              suggestOnTriggerCharacters: false, // Disabled for performance
-              acceptSuggestionOnEnter: 'off', // Disabled for performance
-              tabCompletion: 'off', // Disabled for performance
-              parameterHints: { enabled: false }, // Disabled for performance
-              hover: { enabled: false }, // Disabled for performance
-              contextmenu: false, // Disabled for performance
-              links: false, // Disabled for performance
-              colorDecorators: false, // Disabled for performance
-              lightbulb: { enabled: false }, // Disabled for performance
-              codeLens: false, // Disabled for performance
-              folding: false, // Disabled for performance
-              foldingHighlight: false, // Disabled for performance
-              showFoldingControls: 'never', // Disabled for performance
-              unfoldOnClickAfterEndOfLine: false, // Disabled for performance
-              matchBrackets: 'never', // Disabled for performance
-              occurrencesHighlight: false, // Disabled for performance
-              selectionHighlight: false, // Disabled for performance
-              renderLineHighlight: 'none', // Disabled for performance
+              smoothScrolling: true,
+              
+              // Essential IDE features (re-enabled for better UX)
+              quickSuggestions: {
+                other: true,
+                comments: false,
+                strings: false
+              },
+              suggestOnTriggerCharacters: true,
+              acceptSuggestionOnEnter: 'on',
+              tabCompletion: 'on',
+              wordBasedSuggestions: true,
+              
+              // Helpful tooltips and hints
+              parameterHints: { enabled: true },
+              hover: { 
+                enabled: true,
+                delay: 300
+              },
+              
+              // Bracket matching and highlighting (essential for coding)
+              matchBrackets: 'always',
+              bracketPairColorization: { enabled: true },
+              
+              // Selection and occurrence highlighting
+              occurrencesHighlight: true,
+              selectionHighlight: true,
+              renderLineHighlight: 'all',
+              
+              // Code folding (useful for large files)
+              folding: true,
+              foldingHighlight: true,
+              showFoldingControls: 'mouseover',
+              
+              // Other useful features
+              links: true,
+              colorDecorators: true,
+              contextmenu: true,
+              mouseWheelZoom: true,
+              
+              // Keep these disabled for performance
+              codeLens: false,
+              lightbulb: { enabled: false },
+              
+              // Scrollbar settings
               scrollbar: {
                 vertical: 'visible',
                 horizontal: 'visible',
@@ -128,6 +179,7 @@ const EditorArea = ({
       {isPreviewOpen && (
         <div className="border-l border-gray-800 h-full bg-white overflow-hidden">
           <iframe
+            key={previewKey}
             title="preview"
             className="w-full h-full bg-white"
             srcDoc={`
