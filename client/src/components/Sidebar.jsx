@@ -54,7 +54,6 @@ const Sidebar = () => {
     { name: "Dashboard", icon: Users, path: "/dashboard" },
     { name: "Rooms", icon: FilePlus, path: "/rooms" },
     { name: "Contributors", icon: Users, path: "/contributors" },
-    { name: "Templates", icon: Settings, path: "/templates" },
     { name: "Notifications", icon: Bell, path: "/notifications" },
   ];
 

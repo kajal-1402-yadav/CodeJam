@@ -137,6 +137,8 @@ const Topbar = ({
         <button onClick={onToggleChat} className="p-2 rounded hover:bg-gray-800" aria-label="Toggle Chat">
           <MessageSquare size={18} />
         </button>
+
+        
       </div>
     </div>
   );

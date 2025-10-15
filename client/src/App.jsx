@@ -11,7 +11,6 @@ const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Rooms = lazy(() => import("./pages/Rooms"));
 const RoomEditor = lazy(() => import("./pages/RoomEditor"));
 const Contributors = lazy(() => import("./pages/Contributors"));
-const Templates = lazy(() => import("./pages/Templates"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 const ManageAccount = lazy(() => import("./pages/ManageAccount"));
 
@@ -50,7 +49,7 @@ function AppContent() {
             <Route path="/rooms" element={<ProtectedRoute><Rooms /></ProtectedRoute>} />
             <Route path="/room/:id" element={<ProtectedRoute><RoomEditor /></ProtectedRoute>} />
             <Route path="/contributors" element={<ProtectedRoute><Contributors /></ProtectedRoute>} />
-            <Route path="/templates" element={<ProtectedRoute><Templates /></ProtectedRoute>} />
+            
             <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
             <Route path="/account" element={<ProtectedRoute><ManageAccount /></ProtectedRoute>} />
             <Route path="*" element={<Navigate to={user ? "/dashboard" : "/"} />} />

@@ -1,4 +1,37 @@
 const Activity = require('../models/activityModel');
+const mongoose = require('mongoose');
+
+// auto-generate activity descriptions
+const generateActivityDescription = (type, metadata, userName) => {
+  const { filename, message, oldName, newName, language, executionTime, exitCode, roomName } = metadata || {};
+
+  switch (type) {
+    case 'file_created':
+      return `${userName} created file "${filename}"`;
+    case 'file_edited':
+      return `${userName} edited file "${filename}"`;
+    case 'file_deleted':
+      return `${userName} deleted file "${filename}"`;
+    case 'file_renamed':
+      return `${userName} renamed file "${oldName}" to "${newName}"`;
+    case 'message_sent':
+      // Show the actual message content
+      return `${userName} sent: "${message}"`;
+    case 'code_executed':
+      const status = exitCode === 0 ? 'successfully' : 'with errors';
+      const timeInfo = executionTime ? ` in ${executionTime}ms` : '';
+      return `${userName} executed code "${filename || 'script'}" ${status}${timeInfo}`;
+    case 'room_created':
+      return `${userName} created room "${roomName}"`;
+    case 'room_deleted':
+      return `${userName} deleted room "${roomName}"`;
+    case 'room_updated':
+      const updateDetails = metadata.updateDetails ? ` (${metadata.updateDetails})` : '';
+      return `${userName} updated room "${roomName}"${updateDetails}`;
+    default:
+      return `${userName} performed ${type}`;
+  }
+};
 
 // create a new activity
 const createActivity = async (req, res) => {
@@ -156,38 +189,6 @@ const cleanupOldActivities = async (req, res) => {
   } catch (error) {
     console.error('Error cleaning up activities:', error);
     res.status(400).json({ error: error.message });
-  }
-};
-
-// auto-generate activity descriptions
-const generateActivityDescription = (type, metadata, userName) => {
-  const { filename, message, oldName, newName, language, executionTime, exitCode, roomName } = metadata || {};
-
-  switch (type) {
-    case 'file_created':
-      return `${userName} created file "${filename}"`;
-    case 'file_edited':
-      return `${userName} edited file "${filename}"`;
-    case 'file_deleted':
-      return `${userName} deleted file "${filename}"`;
-    case 'file_renamed':
-      return `${userName} renamed file "${oldName}" to "${newName}"`;
-    case 'message_sent':
-      // Show the actual message content
-      return `${userName} sent: "${message}"`;
-    case 'code_executed':
-      const status = exitCode === 0 ? 'successfully' : 'with errors';
-      const timeInfo = executionTime ? ` in ${executionTime}ms` : '';
-      return `${userName} executed code "${filename || 'script'}" ${status}${timeInfo}`;
-    case 'room_created':
-      return `${userName} created room "${roomName}"`;
-    case 'room_deleted':
-      return `${userName} deleted room "${roomName}"`;
-    case 'room_updated':
-      const updateDetails = metadata.updateDetails ? ` (${metadata.updateDetails})` : '';
-      return `${userName} updated room "${roomName}"${updateDetails}`;
-    default:
-      return `${userName} performed ${type}`;
   }
 };
 

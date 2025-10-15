@@ -29,4 +29,6 @@ router.put("/:roomId", updateRoom);
 // delete a specific room
 router.delete('/:roomId', deleteRoom)
 
+// apply a template to a room
+
 module.exports = router;

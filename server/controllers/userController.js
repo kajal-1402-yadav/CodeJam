@@ -5,7 +5,7 @@ const validator = require("validator");
 
 
 const createToken = (_id) => {
-    return jwt.sign({ _id }, process.env.JWT_Secret, { expiresIn: '7d' })
+    return jwt.sign({ _id }, process.env.JWT_SECRET, { expiresIn: '7d' })
 }
 
 // signup

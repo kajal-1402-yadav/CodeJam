@@ -68,7 +68,7 @@ const getFilesByRoom = async (req, res) => {
         const files = await File.find({
             room: roomId
         })
-        .populate('uploadedBy', 'name email')
+        .populate('uploadedBy', 'username email')
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit)
@@ -94,7 +94,7 @@ const getFileById = async (req, res) => {
         const file = await File.findOne({
             _id: fileId,
             room: roomId
-        }).populate('uploadedBy', 'name email');
+        }).populate('uploadedBy', 'username email');
 
         if (!file) {
             return res.status(404).json({ error: "File not found" });

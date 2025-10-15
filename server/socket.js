@@ -1,4 +1,5 @@
 const roomUsers = {}
+const jwt = require('jsonwebtoken');
 const Chat = require('./models/chatModel'); // Import the Chat model
 const File = require('./models/fileModel'); // Import the File model
 const Activity = require('./models/activityModel'); // Import the Activity model
@@ -18,6 +19,19 @@ const debounce = (func, delay) => {
 // Store debounced save functions for each file
 const debouncedSaveFunctions = {};
 const socketHandler = (io) => {
+    io.use((socket, next) => {
+        try {
+            const token = socket.handshake.auth && socket.handshake.auth.token;
+            if (token) {
+                const decoded = jwt.verify(token, process.env.JWT_SECRET);
+                socket.user = { _id: decoded._id };
+            }
+        } catch (e) {
+            // If token invalid, proceed without attaching user; routes still protected via HTTP
+        }
+        next();
+    });
+
     io.on("connection", (socket) => {
         console.log("Client Connected : ", socket.id);
 
@@ -223,9 +237,9 @@ const socketHandler = (io) => {
         });
 
         // -- Real-time File Editing --
-        socket.on('updateFile', ({ roomId, fileId, newContent }) => {
+        socket.on('updateFile', ({ roomId, fileId, newContent, userId }) => {
             // Broadcast changes to other clients instantly
-            socket.to(roomId).emit('fileUpdated', { fileId, newContent });
+            socket.to(roomId).emit('fileUpdated', { fileId, newContent, userId });
 
             // Create a debounced save function for this specific file if it doesn't exist
             if (!debouncedSaveFunctions[fileId]) {
@@ -235,18 +249,18 @@ const socketHandler = (io) => {
 
                         // Create activity for file edit after saving
                         try {
-                            const file = await File.findById(fileId).populate('createdBy', 'username');
+                            const file = await File.findById(fileId).populate('uploadedBy', 'username');
                             const room = await Room.findById(roomId).select('name');
                             const roomName = room?.name || 'Unknown Room';
 
                             if (file) {
                                 const fileEditActivity = await Activity.create({
                                     room: roomId,
-                                    user: file.createdBy._id,
+                                    user: userId || (socket.user && socket.user._id) || (file.uploadedBy && file.uploadedBy._id) || null,
                                     type: 'file_edited',
-                                    description: `${file.createdBy.username || 'User'} edited file in ${roomName}`,
+                                    description: `${(file.uploadedBy && file.uploadedBy.username) || 'User'} edited file in ${roomName}`,
                                     metadata: {
-                                        filename: file.name,
+                                        filename: file.filename,
                                         roomName,
                                         fileId: file._id
                                     }

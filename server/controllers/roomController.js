@@ -176,6 +176,7 @@ const updateRoom = async (req, res) => {
         res.status(200).json(updatedRoom);
     }
     catch (error) {
+        res.status(400).json({ error: error.message });
     }
 }
 

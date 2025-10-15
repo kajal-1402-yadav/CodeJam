@@ -699,6 +699,7 @@ const clearStorage = (key) => {
     }
   };
 
+
   const toggleTerminal = () => {
     setIsTerminalOpen(prev => !prev);
   };
