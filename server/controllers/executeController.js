@@ -84,9 +84,13 @@ const executeCode = async (req, res) => {
 // Execute Python code
 const executePython = (filePath) => {
   return new Promise((resolve) => {
-    const pythonProcess = spawn('python', [filePath], {
+    // Force UTF-8 mode for Python to avoid Windows cp1252 UnicodeEncodeError
+    const pythonArgs = ['-X', 'utf8', filePath];
+    const pythonEnv = { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' };
+    const pythonProcess = spawn('python', pythonArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 10000 // 10 second timeout
+      timeout: 10000, // 10 second timeout
+      env: pythonEnv
     });
 
     let stdout = '';

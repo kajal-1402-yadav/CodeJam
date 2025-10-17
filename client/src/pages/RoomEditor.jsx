@@ -50,6 +50,9 @@ export default function RoomEditor() {
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [terminalLines, setTerminalLines] = useState([]);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [cwd, setCwd] = useState('');
+  const [terminalHeight, setTerminalHeight] = useState(176); // ~h-44
+  const isDraggingTerm = useRef(false);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
   const [contextMenu, setContextMenu] = useState(null);
@@ -260,6 +263,27 @@ const clearStorage = (key) => {
     };
     load();
   }, [roomId]);
+
+  // Terminal height drag handlers
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!isDraggingTerm.current) return;
+      const delta = window.innerHeight - e.clientY;
+      const clamped = Math.max(120, Math.min(Math.floor(delta), Math.floor(window.innerHeight * 0.8)));
+      setTerminalHeight(clamped);
+    };
+    const onUp = () => {
+      isDraggingTerm.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
   
 
   // Socket event handlers with proper dependencies
@@ -330,10 +354,16 @@ const clearStorage = (key) => {
     socket.on("fileRenamed", handleFileRenamed);
     socket.on("fileDeleted", handleFileDeleted);
 
+    // Show participants list updates
+    socket.on("roomUsers", (users) => {
+      appendTerminal(`Participants: ${users.join(', ')}`);
+    });
+
     return () => {
       socket.off("fileUpdated", handleFileUpdated);
       socket.off("fileRenamed", handleFileRenamed);
       socket.off("fileDeleted", handleFileDeleted);
+      socket.off("roomUsers");
     };
   }, [socket, handleFileUpdated, handleFileRenamed, handleFileDeleted]);
     
@@ -657,6 +687,12 @@ const clearStorage = (key) => {
     };
 
     setIsTerminalOpen(true); // Open terminal when running
+    // Set a virtual cwd to the active file's folder (by folder name or room name)
+    const activeFolder = folders.find(f => String(f._id) === String(activeFile.folder));
+    const rootFolder = folders.find(f => !f.parent && f.name === room?.name);
+    const pathParts = [room?.name].filter(Boolean);
+    if (activeFolder && activeFolder.name) pathParts.push(activeFolder.name);
+    setCwd(pathParts.join('\\'));
     clearTerminal(); // Clear terminal before execution
     appendTerminal(`Running ${activeFile.filename} (${payload.language})...`);
 
@@ -1033,13 +1069,26 @@ const clearStorage = (key) => {
               onContentChange={debouncedHandleChange}
               roomId={roomId}
               files={files}
+              folders={folders}
               activeFileId={activeFileId}
             />
           )}
         </div>
 
-        {/* Terminal - separate bottom panel */}
-        <Terminal isOpen={isTerminalOpen} terminalLines={terminalLines} />
+        {/* Terminal - separate bottom panel with resizer */}
+        {isTerminalOpen && (
+          <>
+            <div
+              className="h-1 w-full cursor-row-resize bg-gray-800 hover:bg-gray-700"
+              onMouseDown={() => {
+                isDraggingTerm.current = true;
+                document.body.style.cursor = 'row-resize';
+                document.body.style.userSelect = 'none';
+              }}
+            />
+            <Terminal isOpen={true} terminalLines={terminalLines} cwd={cwd} height={terminalHeight} />
+          </>
+        )}
       </div>
 
       {/* Chat panel */}

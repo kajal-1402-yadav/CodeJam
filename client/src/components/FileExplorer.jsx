@@ -280,7 +280,21 @@ const FileExplorer = ({
   };
 
   return (
-    <div className="w-64 flex-shrink-0 border-r border-gray-800 bg-[#1E1E1E] flex flex-col h-full">
+    <div
+      className="w-72 flex-shrink-0 border-r border-gray-800 bg-[#1E1E1E] flex flex-col h-full"
+      onClick={(e) => {
+        // Clicking on empty explorer area selects parent (root) and closes inputs
+        if (e.target === e.currentTarget) {
+          // Expand and focus root folder
+          if (rootFolder && !expandedFolders.has(rootFolder._id)) {
+            onToggleFolder(rootFolder._id);
+          }
+          // Close any inline forms
+          if (creatingIn) onSetCreatingIn(null);
+          if (editingItem) onSetEditingItem(null);
+        }
+      }}
+    >
       {/* Header with back button and room name */}
       <div className="p-3 border-b border-gray-800">
         <button

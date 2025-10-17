@@ -36,6 +36,12 @@ const RoomCard = ({ room, onEdit, onDelete, onJoin, onCopy }) => {
               <Users size={16} />
               <span>{room.participants || 0} participants</span>
             </div>
+            {room.createdBy?.username && (
+              <div className="flex items-center gap-1">
+                <span>Creator:</span>
+                <span className="text-gray-300">{room.createdBy.username}</span>
+              </div>
+            )}
             <div className="flex items-center gap-1">
               <Calendar size={16} />
               <span>{room.createdAt}</span>
@@ -137,6 +143,21 @@ const Rooms = () => {
       console.log(`Room "${roomName}" was deleted - removing from UI`);
       // Remove the deleted room from the state
       setRooms(prev => prev.filter(room => room._id !== roomId));
+    });
+
+    // When current user joins a room (from another creator), ensure it shows up and update participants count
+    socket.on('userJoinedRoom', ({ roomId, room }) => {
+      if (room) {
+        setRooms(prev => {
+          const exists = prev.some(r => r._id === room._id);
+          return exists ? prev.map(r => r._id === room._id ? room : r) : [room, ...prev];
+        });
+      }
+    });
+
+    // Update participants count if server broadcasts changes
+    socket.on('roomParticipantsUpdated', ({ roomId, participants }) => {
+      setRooms(prev => prev.map(r => r._id === roomId ? { ...r, participants } : r));
     });
 
     // Connection status logging
