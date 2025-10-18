@@ -8,6 +8,7 @@ import ChatPanel from "../components/ChatPanel";
 import EditorArea from "../components/EditorArea";
 import FileTabs from "../components/FileTabs";
 import ContextMenu, { ContextMenuItem } from "../components/ContextMenu";
+import CollaboratorSidebar from "../components/CollaboratorSidebar";
 import useAuthContext from "../hooks/useAuthContext";
 import { useSocket } from "../context/SocketContext";
 import { getFilesByRoom, getFileById, createFile, updateFile, deleteFile } from "../services/fileService";
@@ -48,6 +49,7 @@ export default function RoomEditor() {
   const [isSaving, setIsSaving] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
+  const [isCollaboratorOpen, setIsCollaboratorOpen] = useState(false);
   const [terminalLines, setTerminalLines] = useState([]);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [cwd, setCwd] = useState('');
@@ -1035,6 +1037,7 @@ const clearStorage = (key) => {
             }}
             onTogglePreview={() => setIsPreviewOpen(v => !v)}
             onToggleChat={() => setIsChatOpen(v => !v)}
+            onToggleCollaborators={() => setIsCollaboratorOpen(v => !v)}
             onLanguageChange={setSelectedLanguage}
           />
 
@@ -1102,6 +1105,15 @@ const clearStorage = (key) => {
         onEditMessage={handleEditMessage}
         onDeleteMessage={handleDeleteMessage}
         currentUser={user}
+      />
+
+      {/* Collaborator sidebar */}
+      <CollaboratorSidebar
+        isOpen={isCollaboratorOpen}
+        onToggle={() => setIsCollaboratorOpen(v => !v)}
+        currentUser={user}
+        currentRoom={room}
+        chatIsOpen={isChatOpen}
       />
     </div>
   );

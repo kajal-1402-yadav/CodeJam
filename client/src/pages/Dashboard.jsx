@@ -53,7 +53,7 @@ const QuickStats = ({ rooms = [], filesCount = 0 }) => {
   );
 };
 
-const RoomCard = ({ room, onJoin, onEdit, onDelete, onCopy }) => {
+const RoomCard = ({ room, onJoin, onEdit, onDelete, onCopy, user }) => {
   const [showMenu, setShowMenu] = useState(false);
 
   // Close menu when clicking outside
@@ -82,31 +82,36 @@ const RoomCard = ({ room, onJoin, onEdit, onDelete, onCopy }) => {
 
         <h3 className="text-white font-bold text-lg mb-1 group-hover:text-[#A78BFA] transition-colors pr-8">{room.name}</h3>
         <p className="text-gray-400 text-sm">Participants: {room.participants}</p>
+        {room.creator && <p className="text-gray-400 text-sm">Created by: {room.creator}</p>}
         <p className="text-gray-500 text-xs mt-1">Created: {room.createdAt}</p>
 
         {/* Dropdown Menu */}
         {showMenu && (
           <div className="absolute top-8 right-0 bg-[#1E1E1E] border border-gray-700 rounded-lg shadow-lg z-20 min-w-[120px]">
-            <button
-              onClick={() => {
-                onEdit(room);
-                setShowMenu(false);
-              }}
-              className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
-            >
-              <Edit size={14} />
-              Rename
-            </button>
-            <button
-              onClick={() => {
-                onDelete(room);
-                setShowMenu(false);
-              }}
-              className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-gray-700 hover:text-red-300 transition-colors flex items-center gap-2"
-            >
-              <Trash2 size={14} />
-              Delete
-            </button>
+            {room.createdBy && String(room.createdBy._id) === String(user._id) && (
+              <>
+                <button
+                  onClick={() => {
+                    onEdit(room);
+                    setShowMenu(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
+                >
+                  <Edit size={14} />
+                  Rename
+                </button>
+                <button
+                  onClick={() => {
+                    onDelete(room);
+                    setShowMenu(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-gray-700 hover:text-red-300 transition-colors flex items-center gap-2"
+                >
+                  <Trash2 size={14} />
+                  Delete
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -203,35 +208,28 @@ const Dashboard = () => {
       socket.on('roomParticipantsUpdated', (data) => {
         const { roomId, participants } = data;
         setRooms(prev => prev.map(room =>
-          room._id === roomId
+          String(room._id) === String(roomId)
             ? { ...room, participants }
             : room
         ));
       });
 
-      // Listen for current user joining a room
-      socket.on('userJoinedRoom', (data) => {
-        const { roomId, room } = data;
-        // If this room isn't in our current rooms list, add it
-        setRooms(prev => {
-          const roomExists = prev.some(r => r._id === roomId);
-          if (!roomExists) {
-            return [room, ...prev];
-          }
-          return prev;
-        });
-      });
-
-      // Listen for new rooms created
-      socket.on('roomCreated', (newRoom) => {
-        if (newRoom.createdBy === user._id || newRoom.participants?.includes(user._id)) {
-          setRooms(prev => [newRoom, ...prev]);
-        }
-      });
+      // Listen for current user joining a room (handled in join function now)
+      // socket.on('userJoinedRoom', (data) => {
+      //   const { roomId, room } = data;
+      //   // If this room isn't in our current rooms list, add it
+      //   setRooms(prev => {
+      //     const roomExists = prev.some(r => r._id === roomId);
+      //     if (!roomExists) {
+      //       return [room, ...prev];
+      //     }
+      //     return prev;
+      //   });
+      // });
 
       // Listen for room deletions
       socket.on('roomDeleted', (data) => {
-        setRooms(prev => prev.filter(room => room._id !== data.roomId));
+        setRooms(prev => prev.filter(room => String(room._id) !== String(data.roomId)));
       });
     }
 
@@ -240,8 +238,7 @@ const Dashboard = () => {
         socket.off('activityCreated');
         socket.off('roomUsers');
         socket.off('roomParticipantsUpdated');
-        socket.off('userJoinedRoom');
-        socket.off('roomCreated');
+        // socket.off('userJoinedRoom'); // Now handled in join function
         socket.off('roomDeleted');
       }
     };
@@ -307,26 +304,69 @@ const Dashboard = () => {
     (room.createdBy && room.createdBy.username && room.createdBy.username.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
+  // Filter rooms created by the user
+  const myCreatedRooms = rooms.filter(room =>
+    room.createdBy && String(room.createdBy._id) === String(user._id) &&
+    (room.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+     (room.createdBy && room.createdBy.username && room.createdBy.username.toLowerCase().includes(searchQuery.toLowerCase())))
+  );
+
+  // Filter rooms joined by the user (rooms where user has been active, not just currently participating)
+  const myJoinedRooms = rooms.filter(room => {
+    // User must not be the creator
+    if (!room.createdBy || String(room.createdBy._id) === String(user._id)) {
+      return false;
+    }
+
+    // Check if user is currently a participant
+    const isCurrentParticipant = Array.isArray(room.participants) && room.participants.some(participant => String(participant._id) === String(user._id));
+
+    // If user is currently a participant, include the room
+    if (isCurrentParticipant) {
+      return true;
+    }
+
+    // Check if user has any activity in the room (messages, file edits, joins, etc.)
+    // For now, we'll fall back to current participant check, but this could be enhanced
+    // to check activity history in the future
+
+    // For now, we'll keep the current logic but add a comment about potential future enhancement
+    return isCurrentParticipant;
+  }).filter(room =>
+    room.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (room.createdBy && room.createdBy.username && room.createdBy.username.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
+
   const handleCreateRoom = async (e) => {
     e.preventDefault();
     if (!newRoomName.trim()) return;
 
     setIsCreating(true);
-    
+    console.log('Creating room:', newRoomName.trim());
+
     const result = await createRoom({
       name: newRoomName.trim(),
       createdBy: user._id
     });
 
     if (result.success) {
-      setRooms(prev => [result.data, ...prev]);
+      console.log('Room created successfully:', result.data);
+      setRooms(prev => {
+        // Check if room already exists to prevent duplicates
+        const exists = prev.some(room => room._id === result.data._id);
+        if (exists) {
+          console.log('Room already exists in state, not adding duplicate');
+          return prev;
+        }
+        return [result.data, ...prev];
+      });
       setNewRoomName("");
       setShowCreateModal(false);
     } else {
       console.error('Error creating room:', result.error);
       setError(result.error);
     }
-    
+
     setIsCreating(false);
   };
 
@@ -364,27 +404,75 @@ const Dashboard = () => {
     const roomData = result.data;
 
     // Check if user is already a participant or creator
-    if (roomData.createdBy === user._id || roomData.participants?.includes(user._id)) {
+    if (roomData.createdBy === user._id || (Array.isArray(roomData.participants) && roomData.participants.some(p => String(p._id) === String(user._id)))) {
       setJoinError("You're already a member of this room.");
       setIsJoining(false);
       return;
     }
 
-    // Join the room using socket
+    // Join the room using socket and wait for confirmation
     if (socket) {
-      socket.emit("joinRoom", {
-        roomId: roomData._id,
-        user: {
-          _id: user._id,
-          username: user.username,
-          email: user.email
-        }
-      });
+      try {
+        // Create a promise that resolves when userJoinedRoom event is received
+        const joinPromise = new Promise((resolve, reject) => {
+          const handleUserJoinedRoom = (data) => {
+            console.log('Received userJoinedRoom event:', data);
+            const { roomId, room } = data;
+            console.log('Room ID from event:', roomId, 'Expected room ID:', roomData._id);
+            // If this room isn't in our current rooms list, add it
+            if (roomId === roomData._id) {
+              console.log('Room ID matches, adding room to list');
+              setRooms(prev => {
+                const roomExists = prev.some(r => String(r._id) === String(roomId));
+                if (!roomExists) {
+                  console.log('Room not in list, adding it');
+                  return [room, ...prev];
+                } else {
+                  console.log('Room already in list');
+                  return prev;
+                }
+              });
+              socket.off('userJoinedRoom', handleUserJoinedRoom);
+              resolve(room);
+            } else {
+              console.log('Room ID does not match');
+            }
+          };
+
+          socket.on('userJoinedRoom', handleUserJoinedRoom);
+
+          // Set a timeout in case the event doesn't come
+          setTimeout(() => {
+            socket.off('userJoinedRoom', handleUserJoinedRoom);
+            reject(new Error('Join room timeout'));
+          }, 5000);
+
+          // Emit the join room event
+          socket.emit("joinRoom", {
+            roomId: roomData._id,
+            user: {
+              _id: user._id,
+              username: user.username,
+              email: user.email
+            }
+          });
+        });
+
+        // Wait for the room to be added to the user's rooms list
+        await joinPromise;
+
+        // Now navigate to the room
+        navigate(`/room/${roomData._id}`);
+        setShowJoinModal(false);
+
+      } catch (error) {
+        console.error('Error joining room:', error);
+        setJoinError('Failed to join room. Please try again.');
+      }
+    } else {
+      setJoinError('Connection error. Please try again.');
     }
 
-    // Navigate to the room
-    navigate(`/room/${roomData._id}`);
-    setShowJoinModal(false);
     setIsJoining(false);
   };
 
@@ -519,27 +607,28 @@ const Dashboard = () => {
             <h2 className="text-2xl font-bold text-white">My Rooms</h2>
             {searchQuery && (
               <div className="text-sm text-gray-400">
-                {filteredRooms.length} room{filteredRooms.length !== 1 ? 's' : ''} found
+                {myCreatedRooms.length} room{myCreatedRooms.length !== 1 ? 's' : ''} found
               </div>
             )}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredRooms.map((room) => (
+            {myCreatedRooms.map((room) => (
               <RoomCard 
                 key={room._id} 
                 room={{
                   ...room,
-                  participants: room.participants?.length || 0,
+                  participants: Array.isArray(room.participants) ? room.participants.length : 0,
                   createdAt: new Date(room.createdAt).toLocaleDateString()
                 }}
                 onJoin={handleJoinRoom}
                 onEdit={handleEditRoom}
                 onDelete={handleDeleteRoom}
                 onCopy={handleCopyRoomLink}
+                user={user}
               />
             ))}
           </div>
-          {filteredRooms.length === 0 && !isLoading && (
+          {myCreatedRooms.length === 0 && !isLoading && (
             <div className="text-center py-12">
               <Users className="mx-auto text-gray-500 mb-4" size={48} />
               {searchQuery ? (
@@ -564,23 +653,54 @@ const Dashboard = () => {
         </section>
 
         <section className="mt-12">
-          <h2 className="text-2xl font-bold text-white mb-5">Popular Templates</h2>
-          <div className="flex gap-6 overflow-x-auto pb-4">
-            {[
-              { name: "React", description: "Modern React app with Vite" },
-              { name: "Node.js", description: "Express API with MongoDB" },
-              { name: "Vue.js", description: "Vue 3 SPA with Composition API" },
-              { name: "Next.js", description: "Full-stack React framework" }
-            ].map((temp, i) => (
-              <div
-                key={i}
-                className="min-w-[220px] p-5 rounded-xl bg-[#1E1E1E]/50 border border-gray-800 hover:border-[#A78BFA]/50 transition-colors cursor-pointer"
-              >
-                <h3 className="text-white font-bold text-md">{temp.name} Starter</h3>
-                <p className="text-gray-400 mt-1 text-sm">{temp.description}</p>
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-2xl font-bold text-white">My Joined Rooms</h2>
+            {searchQuery && (
+              <div className="text-sm text-gray-400">
+                {myJoinedRooms.length} room{myJoinedRooms.length !== 1 ? 's' : ''} found
               </div>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {myJoinedRooms.map((room) => (
+              <RoomCard
+                key={room._id}
+                room={{
+                  ...room,
+                  participants: Array.isArray(room.participants) ? room.participants.length : 0,
+                  createdAt: new Date(room.createdAt).toLocaleDateString(),
+                  creator: room.createdBy ? room.createdBy.username : 'Unknown'
+                }}
+                onJoin={handleJoinRoom}
+                onEdit={handleEditRoom}
+                onDelete={handleDeleteRoom}
+                onCopy={handleCopyRoomLink}
+                user={user}
+              />
             ))}
           </div>
+          {myJoinedRooms.length === 0 && !isLoading && (
+            <div className="text-center py-12">
+              <Users className="mx-auto text-gray-500 mb-4" size={48} />
+              {searchQuery ? (
+                <>
+                  <p className="text-gray-500 text-lg">No joined rooms found for "{searchQuery}"</p>
+                  <p className="text-gray-400 text-sm mt-2">Try a different search term</p>
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="mt-4 px-4 py-2 bg-[#A78BFA] text-[#1E1E1E] rounded-lg hover:bg-[#A78BFA]/90 transition-colors"
+                  >
+                    Clear Search
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-gray-500 text-lg">No joined rooms yet</p>
+                  <p className="text-gray-400 text-sm mt-2">Join rooms using the "Join Room" button above</p>
+                </>
+              )}
+            </div>
+          )}
         </section>
 
         <section className="mt-12">

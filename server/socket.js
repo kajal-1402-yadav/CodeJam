@@ -108,19 +108,22 @@ const socketHandler = (io) => {
                 // Also emit to dashboard for participant count updates
                 io.emit("roomParticipantsUpdated", {
                   roomId: roomId,
-                  participants: Array.from(roomUsers[roomId])
+                  participants: Array.from(roomUsers[roomId]).length
                 });
 
                 // If user wasn't already a participant, emit event for dashboard
                 try {
-                    const room = await Room.findById(roomId);
-                    const wasParticipant = room && room.participants && room.participants.some(p => p.toString() === user._id.toString());
-                    if (!wasParticipant) {
-                      io.emit("userJoinedRoom", {
-                        roomId: roomId,
-                        room: room
-                      });
-                    }
+                    const room = await Room.findById(roomId).populate('createdBy participants', 'name email _id username');
+                    const wasParticipant = room && room.participants && room.participants.some(p => p._id.toString() === user._id.toString());
+                    console.log(`User ${user.email} joining room ${roomId}, was participant: ${wasParticipant}`);
+
+                    // Always emit userJoinedRoom event when user joins, even if they were already a participant
+                    // This ensures the client receives confirmation that the join was processed
+                    console.log(`Emitting userJoinedRoom event for room ${roomId}`);
+                    io.emit("userJoinedRoom", {
+                      roomId: roomId,
+                      room: room
+                    });
                 } catch (error) {
                     console.error('Error checking participant status:', error);
                 }
@@ -139,19 +142,11 @@ const socketHandler = (io) => {
             socket.leave(roomId);
             console.log(` ${user.email} left room ${roomId}`);
 
-            // Remove user from room's participants in database
-            try {
-                Room.findByIdAndUpdate(
-                    roomId,
-                    { $pull: { participants: user._id } },
-                    { new: true }
-                ).exec();
-                console.log(`Removed user ${user.email} from room ${roomId} participants in database`);
-            } catch (dbError) {
-                console.error('Error removing user from room participants in database:', dbError);
-            }
+            // Don't remove user from room's participants in database when navigating away
+            // Only remove from in-memory roomUsers for real-time updates
+            // Users remain in database participants array so they can return to the room later
 
-            // Create activity for user leaving room
+            // Create activity for user leaving room (but don't remove from participants)
             try {
                 const room = await Room.findById(roomId).select('name');
                 const roomName = room?.name || 'Unknown Room';
@@ -175,6 +170,12 @@ const socketHandler = (io) => {
             socket.to(roomId).emit("userLeftNotification", {
                 user: user.username || 'User',
                 timestamp: new Date()
+            });
+
+            // Also emit to dashboard for participant count updates (current active users)
+            io.emit("roomParticipantsUpdated", {
+              roomId: roomId,
+              participants: Array.from(roomUsers[roomId]).length
             });
 
             // Note: user_left activities are not stored in database (ephemeral only)

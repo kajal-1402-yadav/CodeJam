@@ -1,4 +1,4 @@
-import { Save, Play, Monitor, MessageSquare, Terminal as TerminalIcon } from "lucide-react";
+import { Save, Play, Monitor, MessageSquare, Terminal as TerminalIcon, Users } from "lucide-react";
 
 const AVAILABLE_LANGUAGES = [
   { value: "plaintext", label: "Plain Text" },
@@ -56,6 +56,7 @@ const Topbar = ({
   onRun,
   onTogglePreview,
   onToggleChat,
+  onToggleCollaborators,
   onLanguageChange
 }) => {
   const showLanguageSelector = activeFile && !hasObviousExtension(activeFile.filename);
@@ -136,6 +137,10 @@ const Topbar = ({
 
         <button onClick={onToggleChat} className="p-2 rounded hover:bg-gray-800" aria-label="Toggle Chat">
           <MessageSquare size={18} />
+        </button>
+
+        <button onClick={onToggleCollaborators} className="p-2 rounded hover:bg-gray-800" aria-label="Toggle Collaborators">
+          <Users size={18} />
         </button>
 
         

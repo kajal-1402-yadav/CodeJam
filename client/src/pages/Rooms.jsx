@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Search, Users, Calendar, MoreVertical, Edit, Trash2, Copy, ExternalLink, Loader2, X } from "lucide-react";
+import { Plus, Search, Users, Calendar, MoreHorizontal, MoreVertical, Edit, Trash2, Copy, ExternalLink, Loader2, X } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import RoomActivity from "../components/RoomActivity";
 import useAuthContext from "../hooks/useAuthContext";
 import { io } from "socket.io-client";
 import { getAllRooms, createRoom, updateRoom, deleteRoom } from "../services/roomService";
 
-const RoomCard = ({ room, onEdit, onDelete, onJoin, onCopy }) => {
+const RoomCard = ({ room, onEdit, onDelete, onJoin, onCopy, user }) => {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef(null);
 
@@ -25,77 +25,64 @@ const RoomCard = ({ room, onEdit, onDelete, onJoin, onCopy }) => {
   }, []);
 
   return (
-    <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-6 shadow-md hover:border-[#A78BFA]/50 transition-all duration-300 group relative">
-      <div className="flex justify-between items-start mb-4">
-        <div className="flex-1">
-          <h3 className="text-white font-bold text-lg mb-2 group-hover:text-[#A78BFA] transition-colors">
-            {room.name}
-          </h3>
-          <div className="flex items-center gap-4 text-sm text-gray-400">
-            <div className="flex items-center gap-1">
-              <Users size={16} />
-              <span>{room.participants || 0} participants</span>
-            </div>
-            {room.createdBy?.username && (
-              <div className="flex items-center gap-1">
-                <span>Creator:</span>
-                <span className="text-gray-300">{room.createdBy.username}</span>
-              </div>
-            )}
-            <div className="flex items-center gap-1">
-              <Calendar size={16} />
-              <span>{room.createdAt}</span>
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 relative" ref={menuRef}>
-          <button
-            onClick={() => setShowMenu(!showMenu)}
-            className="p-2 rounded-lg hover:bg-gray-700 transition-colors opacity-0 group-hover:opacity-100"
-          >
-            <MoreVertical size={16} className="text-gray-400" />
-          </button>
+    <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-5 shadow-md flex flex-col justify-between transform hover:-translate-y-1 transition-transform duration-300 group relative room-card">
+      <div className="relative">
+        <button
+          onClick={() => setShowMenu(!showMenu)}
+          className="absolute top-0 right-0 p-1 rounded-full hover:bg-gray-700 transition-colors z-10"
+        >
+          <MoreHorizontal size={16} className="text-gray-400 hover:text-white" />
+        </button>
 
-          {/* Dropdown Menu */}
-          {showMenu && (
-            <div className="absolute right-0 top-10 w-32 bg-[#2D2D2D] rounded-md shadow-lg z-10 border border-gray-700">
-              <button
-                onClick={() => {
-                  onEdit(room);
-                  setShowMenu(false);
-                }}
-                className="flex items-center w-full px-4 py-2 text-sm text-gray-200 hover:bg-gray-700"
-              >
-                <Edit size={14} className="mr-2" /> Rename
-              </button>
-              <button
-                onClick={() => {
-                  onDelete(room);
-                  setShowMenu(false);
-                }}
-                className="flex items-center w-full px-4 py-2 text-sm text-red-400 hover:bg-gray-700"
-              >
-                <Trash2 size={14} className="mr-2" /> Delete
-              </button>
-            </div>
-          )}
-        </div>
+        <h3 className="text-white font-bold text-lg mb-1 group-hover:text-[#A78BFA] transition-colors pr-8">{room.name}</h3>
+        <p className="text-gray-400 text-sm">Participants: {room.participants}</p>
+        {room.creator && <p className="text-gray-400 text-sm">Created by: {room.creator}</p>}
+        <p className="text-gray-500 text-xs mt-1">Created: {room.createdAt}</p>
+
+        {/* Dropdown Menu */}
+        {showMenu && (
+          <div className="absolute top-8 right-0 bg-[#1E1E1E] border border-gray-700 rounded-lg shadow-lg z-20 min-w-[120px]">
+            {room.createdBy && String(room.createdBy._id) === String(user._id) && (
+              <>
+                <button
+                  onClick={() => {
+                    onEdit(room);
+                    setShowMenu(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
+                >
+                  <Edit size={14} />
+                  Rename
+                </button>
+                <button
+                  onClick={() => {
+                    onDelete(room);
+                    setShowMenu(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-gray-700 hover:text-red-300 transition-colors flex items-center gap-2"
+                >
+                  <Trash2 size={14} />
+                  Delete
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
-      
-      <div className="flex gap-3">
-        <button 
+
+      <div className="mt-5 flex gap-3">
+        <button
           onClick={() => onJoin(room)}
           className="flex-1 rounded-lg bg-[#A78BFA] px-4 py-2 text-sm font-bold text-[#1E1E1E] hover:bg-[#A78BFA]/90 transition-colors flex items-center justify-center gap-2"
         >
           <ExternalLink size={16} />
-          Join Room
+          Join
         </button>
-        <button 
+        <button
           onClick={() => onCopy(room)}
           className="px-4 py-2 rounded-lg border border-gray-600 text-sm font-bold text-gray-300 hover:border-[#A78BFA] hover:text-white transition-colors flex items-center gap-2"
         >
           <Copy size={16} />
-          Copy
         </button>
       </div>
     </div>
@@ -142,22 +129,30 @@ const Rooms = () => {
     socket.on('roomDeleted', ({ roomId, roomName }) => {
       console.log(`Room "${roomName}" was deleted - removing from UI`);
       // Remove the deleted room from the state
-      setRooms(prev => prev.filter(room => room._id !== roomId));
+      setRooms(prev => prev.filter(room => String(room._id) !== String(roomId)));
     });
 
     // When current user joins a room (from another creator), ensure it shows up and update participants count
     socket.on('userJoinedRoom', ({ roomId, room }) => {
       if (room) {
         setRooms(prev => {
-          const exists = prev.some(r => r._id === room._id);
-          return exists ? prev.map(r => r._id === room._id ? room : r) : [room, ...prev];
+          const exists = prev.some(r => String(r._id) === String(room._id));
+          return exists ? prev.map(r => String(r._id) === String(room._id) ? room : r) : [room, ...prev];
         });
       }
     });
 
     // Update participants count if server broadcasts changes
     socket.on('roomParticipantsUpdated', ({ roomId, participants }) => {
-      setRooms(prev => prev.map(r => r._id === roomId ? { ...r, participants } : r));
+      setRooms(prev => prev.map(r => String(r._id) === String(roomId) ? { ...r, participants } : r));
+    });
+
+    // Listen for new rooms created (to update UI if needed)
+    socket.on('roomCreated', (newRoom) => {
+      console.log('Received roomCreated event:', newRoom);
+      if (String(newRoom.createdBy) === String(user._id) || (Array.isArray(newRoom.participants) && newRoom.participants.some(p => String(p._id) === String(user._id)))) {
+        setRooms(prev => [newRoom, ...prev]);
+      }
     });
 
     // Connection status logging
@@ -171,9 +166,15 @@ const Rooms = () => {
 
     return () => {
       console.log('Cleaning up socket connection');
+      socket.off('roomDeleted');
+      socket.off('userJoinedRoom');
+      socket.off('roomParticipantsUpdated');
+      socket.off('roomCreated');
+      socket.off('connect');
+      socket.off('disconnect');
       socket.disconnect();
     };
-  }, []);
+  }, [user]); // Add user as dependency since we use it in the roomCreated check
 
   const fetchRooms = async () => {
     setIsLoading(true);
@@ -195,26 +196,53 @@ const Rooms = () => {
     (room.createdBy && room.createdBy.username && room.createdBy.username.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
+  // Filter rooms created by the user
+  const myCreatedRooms = rooms.filter(room =>
+    room.createdBy && String(room.createdBy._id) === String(user._id) &&
+    (room.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+     (room.createdBy && room.createdBy.username && room.createdBy.username.toLowerCase().includes(searchQuery.toLowerCase())))
+  );
+
+  // Filter rooms joined by the user (participant but not creator)
+  const myJoinedRooms = rooms.filter(room => {
+    const isCreator = room.createdBy && String(room.createdBy._id) === String(user._id);
+    const isParticipant = Array.isArray(room.participants) && room.participants.some(participant => String(participant._id) === String(user._id));
+
+    return room.createdBy && !isCreator && isParticipant &&
+      (room.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+       (room.createdBy && room.createdBy.username && room.createdBy.username.toLowerCase().includes(searchQuery.toLowerCase())));
+  });
+
   const handleCreateRoom = async (e) => {
     e.preventDefault();
     if (!newRoomName.trim()) return;
 
     setIsCreating(true);
-    
+    console.log('Creating room:', newRoomName.trim());
+
     const result = await createRoom({
       name: newRoomName.trim(),
       createdBy: user._id
     });
 
     if (result.success) {
-      setRooms(prev => [result.data, ...prev]);
+      console.log('Room created successfully:', result.data);
+      setRooms(prev => {
+        // Check if room already exists to prevent duplicates
+        const exists = prev.some(room => room._id === result.data._id);
+        if (exists) {
+          console.log('Room already exists in state, not adding duplicate');
+          return prev;
+        }
+        return [result.data, ...prev];
+      });
       setNewRoomName("");
       setShowCreateModal(false);
     } else {
       console.error('Error creating room:', result.error);
       setError(result.error);
     }
-    
+
     setIsCreating(false);
   };
 
@@ -286,8 +314,8 @@ const Rooms = () => {
   };
 
   const handleCopyRoomLink = (room) => {
-    const roomLink = `${window.location.origin}/room/${room._id}`;
-    navigator.clipboard.writeText(roomLink);
+    // Copy only the room ID instead of the full URL
+    navigator.clipboard.writeText(room._id);
     setCopiedRoom(room);
     setShowCopyModal(true);
   };
@@ -403,33 +431,34 @@ const Rooms = () => {
           </div>
         )}
 
-        {/* Rooms Grid */}
+        {/* My Created Rooms Section */}
         <section>
           <div className="flex items-center justify-between mb-5">
             <h2 className="text-2xl font-bold text-white">My Rooms</h2>
             {searchQuery && (
               <div className="text-sm text-gray-400">
-                {filteredRooms.length} room{filteredRooms.length !== 1 ? 's' : ''} found
+                {myCreatedRooms.length} room{myCreatedRooms.length !== 1 ? 's' : ''} found
               </div>
             )}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredRooms.map((room) => (
+            {myCreatedRooms.map((room) => (
               <RoomCard 
                 key={room._id} 
                 room={{
                   ...room,
-                  participants: room.participants?.length || 0,
+                  participants: Array.isArray(room.participants) ? room.participants.length : 0,
                   createdAt: new Date(room.createdAt).toLocaleDateString()
                 }}
                 onJoin={handleJoinRoom}
                 onEdit={handleEditRoom}
                 onDelete={handleDeleteRoom}
                 onCopy={() => handleCopyRoomLink(room)}
+                user={user}
               />
             ))}
           </div>
-          {filteredRooms.length === 0 && !isLoading && (
+          {myCreatedRooms.length === 0 && !isLoading && (
             <div className="text-center py-12">
               <Users className="mx-auto text-gray-500 mb-4" size={48} />
               {searchQuery ? (
@@ -453,6 +482,58 @@ const Rooms = () => {
           )}
         </section>
 
+        {/* My Joined Rooms Section */}
+        <section className="mt-8">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-2xl font-bold text-white">My Joined Rooms</h2>
+            {searchQuery && (
+              <div className="text-sm text-gray-400">
+                {myJoinedRooms.length} room{myJoinedRooms.length !== 1 ? 's' : ''} found
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {myJoinedRooms.map((room) => (
+              <RoomCard
+                key={room._id}
+                room={{
+                  ...room,
+                  participants: Array.isArray(room.participants) ? room.participants.length : 0,
+                  createdAt: new Date(room.createdAt).toLocaleDateString(),
+                  creator: room.createdBy ? room.createdBy.username : 'Unknown'
+                }}
+                onJoin={handleJoinRoom}
+                onEdit={handleEditRoom}
+                onDelete={handleDeleteRoom}
+                onCopy={() => handleCopyRoomLink(room)}
+                user={user}
+              />
+            ))}
+          </div>
+          {myJoinedRooms.length === 0 && !isLoading && (
+            <div className="text-center py-12">
+              <Users className="mx-auto text-gray-500 mb-4" size={48} />
+              {searchQuery ? (
+                <>
+                  <p className="text-gray-500 text-lg">No joined rooms found for "{searchQuery}"</p>
+                  <p className="text-gray-400 text-sm mt-2">Try a different search term</p>
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="mt-4 px-4 py-2 bg-[#A78BFA] text-[#1E1E1E] rounded-lg hover:bg-[#A78BFA]/90 transition-colors"
+                  >
+                    Clear Search
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-gray-500 text-lg">No joined rooms yet</p>
+                  <p className="text-gray-400 text-sm mt-2">Join rooms using room links shared with you</p>
+                </>
+              )}
+            </div>
+          )}
+        </section>
+
         {/* Room History Section */}
         <section className="mt-8 mb-8">
           <div className="flex items-center justify-between mb-5">
@@ -460,6 +541,8 @@ const Rooms = () => {
           </div>
           <RoomActivity showAllActivities={true} maxItems={10} />
         </section>
+
+        {/* Create Room Modal */}
         {showCreateModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
             <div className="bg-[#1E1E1E] rounded-xl p-6 w-full max-w-md mx-4 border border-gray-800">
@@ -583,12 +666,12 @@ const Rooms = () => {
         {showCopyModal && copiedRoom && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
             <div className="bg-[#1E1E1E] rounded-xl p-6 w-full max-w-md mx-4 border border-gray-800">
-              <h3 className="text-xl font-bold text-white mb-4">Link Copied!</h3>
+              <h3 className="text-xl font-bold text-white mb-4">Room ID Copied!</h3>
               <p className="text-gray-300 mb-2">
-                Room link for <span className="text-white font-semibold">"{copiedRoom.name}"</span> has been copied to your clipboard.
+                Room ID for <span className="text-white font-semibold">"{copiedRoom.name}"</span> has been copied to your clipboard.
               </p>
               <p className="text-gray-400 text-sm mb-6">
-                You can now share this link with others to invite them to the room.
+                You can now share this room ID with others to invite them to the room.
               </p>
 
               <div className="flex gap-3">
