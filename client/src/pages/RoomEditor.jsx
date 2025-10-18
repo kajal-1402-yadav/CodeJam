@@ -8,7 +8,6 @@ import ChatPanel from "../components/ChatPanel";
 import EditorArea from "../components/EditorArea";
 import FileTabs from "../components/FileTabs";
 import ContextMenu, { ContextMenuItem } from "../components/ContextMenu";
-import CollaboratorSidebar from "../components/CollaboratorSidebar";
 import useAuthContext from "../hooks/useAuthContext";
 import { useSocket } from "../context/SocketContext";
 import { getFilesByRoom, getFileById, createFile, updateFile, deleteFile } from "../services/fileService";
