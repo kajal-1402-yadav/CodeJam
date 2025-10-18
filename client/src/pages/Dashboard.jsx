@@ -286,16 +286,21 @@ const Dashboard = () => {
 
   const fetchRooms = async () => {
     setIsLoading(true);
-    
-    const result = await getAllRooms();
-    
-    if (result.success) {
-      setRooms(result.data);
-    } else {
-      console.error('Error fetching rooms:', result.error);
-      setError(result.error);
+
+    try {
+      const result = await getAllRooms();
+
+      if (result.success) {
+        setRooms(result.data);
+      } else {
+        console.error('Error fetching rooms:', result.error);
+        setError(result.error);
+      }
+    } catch (error) {
+      console.error('Error in fetchRooms:', error);
+      setError('Failed to load dashboard');
     }
-    
+
     setIsLoading(false);
   };
 

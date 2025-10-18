@@ -90,6 +90,7 @@ const Contributors = () => {
   const [rooms, setRooms] = useState([]);
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true); // Track initial page load
   const [searchQuery, setSearchQuery] = useState("");
   const [showInviteModal, setShowInviteModal] = useState(false);
 
@@ -100,6 +101,7 @@ const Contributors = () => {
       if (result.success) {
         setRooms(result.data);
       }
+      setIsInitialLoading(false); // Set initial loading to false after rooms are fetched
     };
     fetchRooms();
   }, []);
@@ -207,7 +209,12 @@ const Contributors = () => {
             {selectedRoom ? 'Room Participants' : 'All Contributors'}
           </h2>
 
-          {isLoading ? (
+          {isInitialLoading ? (
+            <div className="text-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#A78BFA] mx-auto"></div>
+              <p className="text-gray-400 mt-2">Loading contributors...</p>
+            </div>
+          ) : isLoading ? (
             <div className="text-center py-12">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#A78BFA] mx-auto"></div>
               <p className="text-gray-400 mt-2">Loading contributors...</p>
@@ -226,14 +233,15 @@ const Contributors = () => {
               ))}
             </div>
           )}
-          {filteredContributors.length === 0 && selectedRoom && (
+          {!isLoading && !isInitialLoading && filteredContributors.length === 0 && selectedRoom && (
             <div className="text-center py-12">
               <Users className="mx-auto text-gray-500 mb-4" size={48} />
               <p className="text-gray-500 text-lg">No participants found for this room</p>
               <p className="text-gray-400 text-sm mt-2">Invite team members to collaborate</p>
             </div>
           )}
-          {filteredContributors.length === 0 && !selectedRoom && (
+
+          {!isLoading && !isInitialLoading && filteredContributors.length === 0 && !selectedRoom && (
             <div className="text-center py-12">
               <Users className="mx-auto text-gray-500 mb-4" size={48} />
               <p className="text-gray-500 text-lg">No contributors found</p>

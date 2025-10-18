@@ -6,13 +6,15 @@ import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 
-// Lazy load heavy components for better performance
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const Rooms = lazy(() => import("./pages/Rooms"));
+// Import all pages directly (no lazy loading for sidebar pages)
+import Dashboard from "./pages/Dashboard";
+import Rooms from "./pages/Rooms";
+import Contributors from "./pages/Contributors";
+import Notifications from "./pages/Notifications";
+import ManageAccount from "./pages/ManageAccount";
+
+// Lazy load only the heavy Room Editor component
 const RoomEditor = lazy(() => import("./pages/RoomEditor"));
-const Contributors = lazy(() => import("./pages/Contributors"));
-const Notifications = lazy(() => import("./pages/Notifications"));
-const ManageAccount = lazy(() => import("./pages/ManageAccount"));
 
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -40,7 +42,7 @@ function AppContent() {
     <div className="flex">
       {showGlobalSidebar && <Sidebar />}
       <div className="w-full">
-        <Suspense fallback={null}>
+        <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/" element={!user ? <Home /> : <Navigate to="/dashboard" />} />
             <Route path="/login" element={!user ? <Login /> : <Navigate to="/dashboard" />} />
