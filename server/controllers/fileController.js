@@ -6,50 +6,110 @@ const mongoose = require("mongoose");
 const uploadFile = async (req, res) => {
   try {
     const { roomId } = req.params;
-    const { filename, content, uploadedBy, language, folder } = req.body;
 
-    if (!filename || !uploadedBy || !language) {
-      return res.status(400).json({ error: "Filename, language and uploadedBy are required" });
+    // Check if this is a file upload (multipart/form-data)
+    if (req.file) {
+      // Handle file upload
+      const { uploadedBy, folder } = req.body;
+
+      if (!uploadedBy) {
+        return res.status(400).json({ error: "uploadedBy is required" });
+      }
+
+      if (!mongoose.Types.ObjectId.isValid(roomId)) {
+        return res.status(400).json({ error: "Invalid room ID" });
+      }
+
+      if (!mongoose.Types.ObjectId.isValid(uploadedBy)) {
+        return res.status(400).json({ error: "Invalid uploadedBy ID" });
+      }
+
+      if (folder && !mongoose.Types.ObjectId.isValid(folder)) {
+        return res.status(400).json({ error: "Invalid folder ID" });
+      }
+
+      // Get file content
+      const fileContent = req.file.buffer ? req.file.buffer.toString() : '';
+
+      // Determine language from filename
+      const filename = req.file.originalname;
+      const ext = filename.split('.').pop()?.toLowerCase();
+      const language = getLanguageFromExtension(ext);
+
+      const file = await File.create({
+        room: roomId,
+        filename,
+        content: fileContent,
+        uploadedBy,
+        language,
+        folder: folder || null
+      });
+
+      res.status(201).json(file);
+    } else {
+      // Handle JSON file creation (existing logic)
+      const { filename, content, uploadedBy, language, folder } = req.body;
+
+      if (!filename || !uploadedBy || !language) {
+        return res.status(400).json({ error: "Filename, language and uploadedBy are required" });
+      }
+
+      if (!mongoose.Types.ObjectId.isValid(roomId)) {
+        return res.status(400).json({ error: "Invalid room ID" });
+      }
+
+      if (!mongoose.Types.ObjectId.isValid(uploadedBy)) {
+        return res.status(400).json({ error: "Invalid uploadedBy ID" });
+      }
+
+      // Allowed languages should mirror model enum
+      const allowedLanguages = [
+        "javascript",
+        "typescript",
+        "python",
+        "java",
+        "c",
+        "cpp",
+        "html",
+        "css",
+        "json",
+        "markdown",
+        "plaintext"
+      ];
+      if (!allowedLanguages.includes(language)) {
+        return res.status(400).json({ error: `Invalid language. Allowed: ${allowedLanguages.join(", ")}` });
+      }
+
+      const file = await File.create({
+        room: roomId,
+        filename,
+        content: content || "",
+        uploadedBy,
+        language,
+        folder: folder || null
+      });
+
+      res.status(201).json(file);
     }
-
-    if (!mongoose.Types.ObjectId.isValid(roomId)) {
-      return res.status(400).json({ error: "Invalid room ID" });
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(uploadedBy)) {
-      return res.status(400).json({ error: "Invalid uploadedBy ID" });
-    }
-
-    // Allowed languages should mirror model enum
-    const allowedLanguages = [
-      "javascript",
-      "typescript",
-      "python",
-      "java",
-      "c",
-      "cpp",
-      "html",
-      "css",
-      "json",
-      "markdown",
-      "plaintext"
-    ];
-    if (!allowedLanguages.includes(language)) {
-      return res.status(400).json({ error: `Invalid language. Allowed: ${allowedLanguages.join(", ")}` });
-    }
-
-    const file = await File.create({
-      room: roomId,
-      filename,
-      content: content || "",
-      uploadedBy,
-      language,
-      folder: folder || null
-    });
-
-    res.status(201).json(file);
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+};
+
+// Helper function to determine language from file extension
+const getLanguageFromExtension = (ext) => {
+  switch (ext) {
+    case 'js': return 'javascript';
+    case 'ts': return 'typescript';
+    case 'py': return 'python';
+    case 'java': return 'java';
+    case 'c': return 'c';
+    case 'cpp': return 'cpp';
+    case 'html': return 'html';
+    case 'css': return 'css';
+    case 'json': return 'json';
+    case 'md': return 'markdown';
+    default: return 'plaintext';
   }
 };
 
