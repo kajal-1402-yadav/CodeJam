@@ -1,6 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Bell, Search, Check, X, MoreVertical, Users, FileText, MessageSquare, Settings } from "lucide-react";
 import Sidebar from "../components/Sidebar";
+import {
+  getNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+  deleteNotification,
+  clearAllNotifications,
+  transformActivityToNotification
+} from "../services/notificationService";
 
 const NotificationItem = ({ notification, onMarkRead, onDelete }) => {
   const getNotificationIcon = (type) => {
@@ -69,73 +77,9 @@ const NotificationItem = ({ notification, onMarkRead, onDelete }) => {
 };
 
 const Notifications = () => {
-  const [notifications, setNotifications] = useState([
-    {
-      id: 1,
-      type: 'room',
-      title: 'New Room Invitation',
-      message: 'You have been invited to join "React Development Team" by alex_dev',
-      timestamp: '2 minutes ago',
-      isRead: false
-    },
-    {
-      id: 2,
-      type: 'file',
-      title: 'File Uploaded',
-      message: 'sarah_ui uploaded "component-library.zip" to React Development Team',
-      timestamp: '15 minutes ago',
-      isRead: false
-    },
-    {
-      id: 3,
-      type: 'message',
-      title: 'New Message',
-      message: 'mike_backend sent a message in "Backend API Discussion"',
-      timestamp: '1 hour ago',
-      isRead: true
-    },
-    {
-      id: 4,
-      type: 'system',
-      title: 'System Update',
-      message: 'CodeJam has been updated to version 2.1.0 with new features',
-      timestamp: '3 hours ago',
-      isRead: true
-    },
-    {
-      id: 5,
-      type: 'room',
-      title: 'Room Created',
-      message: 'You successfully created "UI/UX Design Review" room',
-      timestamp: '1 day ago',
-      isRead: true
-    },
-    {
-      id: 6,
-      type: 'file',
-      title: 'File Shared',
-      message: 'jessica_design shared "design-mockups.fig" with you',
-      timestamp: '2 days ago',
-      isRead: true
-    },
-    {
-      id: 7,
-      type: 'message',
-      title: 'Mentioned in Message',
-      message: 'david_qa mentioned you in a message in "Database Optimization"',
-      timestamp: '3 days ago',
-      isRead: true
-    },
-    {
-      id: 8,
-      type: 'system',
-      title: 'Welcome to CodeJam',
-      message: 'Welcome to CodeJam! Start by creating your first room or joining an existing one.',
-      timestamp: '1 week ago',
-      isRead: true
-    }
-  ]);
-  
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState("All");
 
@@ -147,6 +91,33 @@ const Notifications = () => {
     { value: "system", label: "System" }
   ];
 
+  // Load notifications from backend
+  useEffect(() => {
+    const loadNotifications = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const response = await getNotifications(100, 1); // Get more notifications for better UX
+
+        if (response.success) {
+          // Transform activities to notification format
+          const transformedNotifications = response.data.map(transformActivityToNotification);
+          setNotifications(transformedNotifications);
+        } else {
+          setError(response.error || 'Failed to load notifications');
+        }
+      } catch (err) {
+        setError('Failed to load notifications');
+        console.error('Error loading notifications:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadNotifications();
+  }, []);
+
   const filteredNotifications = notifications.filter(notification => {
     const matchesSearch = notification.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          notification.message.toLowerCase().includes(searchQuery.toLowerCase());
@@ -156,29 +127,126 @@ const Notifications = () => {
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
-  const handleMarkRead = (id) => {
-    setNotifications(prev => 
-      prev.map(notification => 
-        notification.id === id 
-          ? { ...notification, isRead: true }
-          : notification
-      )
+  const handleMarkRead = async (id) => {
+    try {
+      const response = await markNotificationAsRead(id);
+
+      if (response.success) {
+        setNotifications(prev =>
+          prev.map(notification =>
+            notification.id === id
+              ? { ...notification, isRead: true }
+              : notification
+          )
+        );
+      } else {
+        console.error('Failed to mark notification as read:', response.error);
+      }
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    try {
+      const response = await deleteNotification(id);
+
+      if (response.success) {
+        setNotifications(prev => prev.filter(notification => notification.id !== id));
+      } else {
+        console.error('Failed to delete notification:', response.error);
+      }
+    } catch (error) {
+      console.error('Error deleting notification:', error);
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      const response = await markAllNotificationsAsRead();
+
+      if (response.success) {
+        setNotifications(prev =>
+          prev.map(notification => ({ ...notification, isRead: true }))
+        );
+      } else {
+        console.error('Failed to mark all notifications as read:', response.error);
+      }
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error);
+    }
+  };
+
+  const handleClearAll = async () => {
+    try {
+      const response = await clearAllNotifications();
+
+      if (response.success) {
+        setNotifications([]);
+      } else {
+        console.error('Failed to clear all notifications:', response.error);
+      }
+    } catch (error) {
+      console.error('Error clearing all notifications:', error);
+    }
+  };
+
+  // Format timestamp for display
+  const formatTimestamp = (timestamp) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffInMinutes = Math.floor((now - date) / (1000 * 60));
+
+    if (diffInMinutes < 1) return 'Just now';
+    if (diffInMinutes < 60) return `${diffInMinutes} minutes ago`;
+
+    const diffInHours = Math.floor(diffInMinutes / 60);
+    if (diffInHours < 24) return `${diffInHours} hours ago`;
+
+    const diffInDays = Math.floor(diffInHours / 24);
+    if (diffInDays < 7) return `${diffInDays} days ago`;
+
+    return date.toLocaleDateString();
+  };
+
+  // Update timestamps to show relative time
+  const notificationsWithFormattedTime = filteredNotifications.map(notification => ({
+    ...notification,
+    timestamp: formatTimestamp(notification.timestamp)
+  }));
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen bg-[#1E1E1E] text-gray-200">
+        <Sidebar />
+        <main className="flex-1 p-8 ml-64">
+          <div className="flex items-center justify-center h-64">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#A78BFA] mx-auto mb-4"></div>
+              <p className="text-gray-400">Loading notifications...</p>
+            </div>
+          </div>
+        </main>
+      </div>
     );
-  };
+  }
 
-  const handleDelete = (id) => {
-    setNotifications(prev => prev.filter(notification => notification.id !== id));
-  };
-
-  const handleMarkAllRead = () => {
-    setNotifications(prev => 
-      prev.map(notification => ({ ...notification, isRead: true }))
+  if (error) {
+    return (
+      <div className="flex min-h-screen bg-[#1E1E1E] text-gray-200">
+        <Sidebar />
+        <main className="flex-1 p-8 ml-64">
+          <div className="flex items-center justify-center h-64">
+            <div className="text-center">
+              <Bell className="mx-auto text-gray-500 mb-4" size={48} />
+              <p className="text-gray-400 text-lg mb-2">Failed to load notifications</p>
+              <p className="text-gray-500 text-sm">{error}</p>
+            </div>
+          </div>
+        </main>
+      </div>
     );
-  };
-
-  const handleClearAll = () => {
-    setNotifications([]);
-  };
+  }
 
   return (
     <div className="flex min-h-screen bg-[#1E1E1E] text-gray-200">
@@ -203,14 +271,14 @@ const Notifications = () => {
             </div>
             <div className="flex gap-2">
               {unreadCount > 0 && (
-                <button 
+                <button
                   onClick={handleMarkAllRead}
                   className="rounded-xl bg-green-600/20 px-4 py-3 text-sm font-bold text-green-400 border border-green-500/30 hover:bg-green-600/30 transition-colors"
                 >
                   Mark All Read
                 </button>
               )}
-              <button 
+              <button
                 onClick={handleClearAll}
                 className="rounded-xl bg-red-600/20 px-4 py-3 text-sm font-bold text-red-400 border border-red-500/30 hover:bg-red-600/30 transition-colors"
               >
@@ -233,7 +301,7 @@ const Notifications = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-5 shadow-lg">
             <div className="flex items-center justify-between">
               <div>
@@ -245,7 +313,7 @@ const Notifications = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-5 shadow-lg">
             <div className="flex items-center justify-between">
               <div>
@@ -289,16 +357,16 @@ const Notifications = () => {
             {filterType === "All" ? "All Notifications" : `${filterType.charAt(0).toUpperCase() + filterType.slice(1)} Notifications`}
           </h2>
           <div className="space-y-4">
-            {filteredNotifications.map((notification) => (
-              <NotificationItem 
-                key={notification.id} 
-                notification={notification} 
+            {notificationsWithFormattedTime.map((notification) => (
+              <NotificationItem
+                key={notification.id}
+                notification={notification}
                 onMarkRead={handleMarkRead}
                 onDelete={handleDelete}
               />
             ))}
           </div>
-          {filteredNotifications.length === 0 && (
+          {notificationsWithFormattedTime.length === 0 && (
             <div className="text-center py-12">
               <Bell className="mx-auto text-gray-500 mb-4" size={48} />
               <p className="text-gray-500 text-lg">No notifications found</p>

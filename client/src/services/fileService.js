@@ -48,23 +48,13 @@ export const updateFile = async (roomId, fileId, updates) => {
   }
 };
 
-// Upload a file
-export const uploadFile = async (roomId, file, folderId = null) => {
+// Delete a file
+export const deleteFile = async (roomId, fileId) => {
   try {
-    const formData = new FormData();
-    formData.append('file', file);
-    if (folderId) {
-      formData.append('folder', folderId);
-    }
-
-    const response = await api.post(`/api/rooms/${roomId}/files`, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
+    const response = await api.delete(`/api/rooms/${roomId}/files/${fileId}`);
     return { success: true, data: response.data };
   } catch (error) {
-    console.error('Failed to upload file:', error);
+    console.error('Failed to delete file:', error);
     return { success: false, error: error.response?.data?.error || error.message };
   }
 };
