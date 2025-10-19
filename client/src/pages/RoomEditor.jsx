@@ -48,7 +48,6 @@ export default function RoomEditor() {
   const [isSaving, setIsSaving] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
-  const [isCollaboratorOpen, setIsCollaboratorOpen] = useState(false);
   const [terminalLines, setTerminalLines] = useState([]);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [cwd, setCwd] = useState('');
@@ -357,7 +356,7 @@ const clearStorage = (key) => {
 
     // Show participants list updates
     socket.on("roomUsers", (users) => {
-      appendTerminal(`Participants: ${users.join(', ')}`);
+      appendTerminal(`Collaborators: ${users.join(', ')}`);
     });
 
     return () => {
@@ -1036,7 +1035,6 @@ const clearStorage = (key) => {
             }}
             onTogglePreview={() => setIsPreviewOpen(v => !v)}
             onToggleChat={() => setIsChatOpen(v => !v)}
-            onToggleCollaborators={() => setIsCollaboratorOpen(v => !v)}
             onLanguageChange={setSelectedLanguage}
           />
 
@@ -1106,14 +1104,14 @@ const clearStorage = (key) => {
         currentUser={user}
       />
 
-      {/* Collaborator sidebar */}
-      <CollaboratorSidebar
+      {/* Collaborator sidebar - commented out since component doesn't exist */}
+      {/* <CollaboratorSidebar
         isOpen={isCollaboratorOpen}
         onToggle={() => setIsCollaboratorOpen(v => !v)}
         currentUser={user}
         currentRoom={room}
         chatIsOpen={isChatOpen}
-      />
+      /> */}
     </div>
   );
 }

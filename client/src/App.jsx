@@ -9,7 +9,7 @@ import Signup from "./pages/Signup";
 // Import all pages directly (no lazy loading for sidebar pages)
 import Dashboard from "./pages/Dashboard";
 import Rooms from "./pages/Rooms";
-import Contributors from "./pages/Contributors";
+import Collaborators from "./pages/Collaborators";
 import Notifications from "./pages/Notifications";
 import ManageAccount from "./pages/ManageAccount";
 
@@ -50,7 +50,7 @@ function AppContent() {
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/rooms" element={<ProtectedRoute><Rooms /></ProtectedRoute>} />
             <Route path="/room/:id" element={<ProtectedRoute><RoomEditor /></ProtectedRoute>} />
-            <Route path="/contributors" element={<ProtectedRoute><Contributors /></ProtectedRoute>} />
+            <Route path="/collaborators" element={<ProtectedRoute><Collaborators /></ProtectedRoute>} />
             
             <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
             <Route path="/account" element={<ProtectedRoute><ManageAccount /></ProtectedRoute>} />

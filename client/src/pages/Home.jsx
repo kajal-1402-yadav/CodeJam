@@ -51,7 +51,7 @@ const Home = () => {
                                 </div>
                                 <h3 className="mt-6 text-lg font-bold text-white">Real-time Collaboration</h3>
                                 <p className="mt-2 text-base text-gray-400">
-                                    Work together on the same code, with changes instantly reflected for all participants.
+                                    Work together on the same code, with changes instantly reflected for all collaborators.
                                 </p>
                             </div>
 

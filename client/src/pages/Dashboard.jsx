@@ -9,7 +9,7 @@ import { getFilesByRoom } from "../services/fileService";
 import { getActivities } from "../services/activityService";
 
 const QuickStats = ({ rooms = [], filesCount = 0 }) => {
-  const totalParticipants = rooms.reduce((sum, room) => sum + (room.participants?.length || 0), 0);
+  const totalCollaborators = rooms.reduce((sum, room) => sum + (room.participants?.length || 0), 0);
 
   const stats = [
     {
@@ -18,8 +18,8 @@ const QuickStats = ({ rooms = [], filesCount = 0 }) => {
       icon: Users
     },
     {
-      label: "Team Members",
-      value: totalParticipants,
+      label: "Collaborators",
+      value: totalCollaborators,
       icon: Users
     },
     {
@@ -81,7 +81,7 @@ const RoomCard = ({ room, onJoin, onEdit, onDelete, onCopy, user }) => {
         </button>
 
         <h3 className="text-white font-bold text-lg mb-1 group-hover:text-[#A78BFA] transition-colors pr-8">{room.name}</h3>
-        <p className="text-gray-400 text-sm">Participants: {room.participants}</p>
+        <p className="text-gray-400 text-sm">Collaborators: {room.participants}</p>
         {room.creator && <p className="text-gray-400 text-sm">Created by: {room.creator}</p>}
         <p className="text-gray-500 text-xs mt-1">Created: {room.createdAt}</p>
 

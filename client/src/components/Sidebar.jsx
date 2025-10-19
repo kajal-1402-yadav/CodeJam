@@ -53,7 +53,7 @@ const Sidebar = () => {
   const navItems = [
     { name: "Dashboard", icon: Users, path: "/dashboard" },
     { name: "Rooms", icon: FilePlus, path: "/rooms" },
-    { name: "Contributors", icon: Users, path: "/contributors" },
+    { name: "Collaborators", icon: Users, path: "/collaborators" },
     { name: "Notifications", icon: Bell, path: "/notifications" },
   ];
 

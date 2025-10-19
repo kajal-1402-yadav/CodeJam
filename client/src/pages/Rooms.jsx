@@ -35,7 +35,7 @@ const RoomCard = ({ room, onEdit, onDelete, onJoin, onCopy, user }) => {
         </button>
 
         <h3 className="text-white font-bold text-lg mb-1 group-hover:text-[#A78BFA] transition-colors pr-8">{room.name}</h3>
-        <p className="text-gray-400 text-sm">Participants: {room.participants}</p>
+        <p className="text-gray-400 text-sm">Collaborators: {room.participants}</p>
         {room.creator && <p className="text-gray-400 text-sm">Created by: {room.creator}</p>}
         <p className="text-gray-500 text-xs mt-1">Created: {room.createdAt}</p>
 
@@ -389,13 +389,13 @@ const Rooms = () => {
           <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-5 shadow-lg">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-400 text-sm font-medium">Active Participants</p>
+                <p className="text-gray-400 text-sm font-medium">Active Collaborators</p>
                 <p className="text-white text-3xl font-bold mt-1">
                   {rooms.reduce((sum, room) => {
-                    const participants = Array.isArray(room.participants)
+                    const collaborators = Array.isArray(room.participants)
                       ? room.participants.length
                       : (room.participants || 0);
-                    return sum + participants;
+                    return sum + collaborators;
                   }, 0)}
                 </p>
               </div>
