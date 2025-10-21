@@ -7,6 +7,7 @@ const userRoutes = require("./users");
 const executeRoutes = require("./execute");
 const activityRoutes = require("./activities");
 const notificationRoutes = require("./notifications");
+const invitationRoutes = require("./invitations");
 
 module.exports = {
   authRoutes,
@@ -17,5 +18,6 @@ module.exports = {
   userRoutes,
   executeRoutes,
   activityRoutes,
-  notificationRoutes
+  notificationRoutes,
+  invitationRoutes
 };

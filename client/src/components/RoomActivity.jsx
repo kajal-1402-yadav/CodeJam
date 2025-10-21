@@ -79,6 +79,12 @@ const RoomActivity = ({ roomId, showAllActivities = false, maxItems = 5 }) => {
         return <Edit size={16} className="text-blue-500" />;
       case 'room_deleted':
         return <Trash2 size={16} className="text-red-500" />;
+      case 'invitation_sent':
+        return <User size={16} className="text-blue-500" />;
+      case 'invitation_accepted':
+        return <User size={16} className="text-green-500" />;
+      case 'invitation_declined':
+        return <User size={16} className="text-red-500" />;
       // Temporary activities (user_joined, user_left) are not shown in history
       default:
         return <Activity size={16} className="text-gray-500" />;

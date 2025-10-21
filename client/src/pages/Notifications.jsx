@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Bell, Search, Check, X, MoreVertical, Users, FileText, MessageSquare, Settings } from "lucide-react";
+import { Bell, Search, Check, X, MoreVertical, Users, FileText, MessageSquare, Settings, UserPlus, CheckCircle, XCircle } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import {
   getNotifications,
@@ -7,16 +7,19 @@ import {
   markAllNotificationsAsRead,
   deleteNotification,
   clearAllNotifications,
-  transformActivityToNotification
+  transformActivityToNotification,
+  acceptInvitationFromNotification,
+  declineInvitationFromNotification
 } from "../services/notificationService";
 
-const NotificationItem = ({ notification, onMarkRead, onDelete }) => {
+const NotificationItem = ({ notification, onMarkRead, onDelete, onAcceptInvitation, onDeclineInvitation }) => {
   const getNotificationIcon = (type) => {
     switch (type) {
       case 'room': return <Users className="text-blue-400" size={20} />;
       case 'file': return <FileText className="text-green-400" size={20} />;
       case 'message': return <MessageSquare className="text-purple-400" size={20} />;
       case 'system': return <Settings className="text-gray-400" size={20} />;
+      case 'invitation': return <UserPlus className="text-orange-400" size={20} />;
       default: return <Bell className="text-[#A78BFA]" size={20} />;
     }
   };
@@ -27,6 +30,7 @@ const NotificationItem = ({ notification, onMarkRead, onDelete }) => {
       case 'file': return 'border-l-green-400';
       case 'message': return 'border-l-purple-400';
       case 'system': return 'border-l-gray-400';
+      case 'invitation': return 'border-l-orange-400';
       default: return 'border-l-[#A78BFA]';
     }
   };
@@ -61,6 +65,24 @@ const NotificationItem = ({ notification, onMarkRead, onDelete }) => {
                   <Check size={16} className="text-green-400" />
                 </button>
               )}
+              {notification.type === 'invitation' && notification.activityData?.type === 'invitation_sent' && (
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => onAcceptInvitation(notification.activityData?._id)}
+                    className="p-1 rounded hover:bg-green-600 transition-colors"
+                    title="Accept invitation"
+                  >
+                    <CheckCircle size={16} className="text-green-400" />
+                  </button>
+                  <button
+                    onClick={() => onDeclineInvitation(notification.activityData?._id)}
+                    className="p-1 rounded hover:bg-red-600 transition-colors"
+                    title="Decline invitation"
+                  >
+                    <XCircle size={16} className="text-red-400" />
+                  </button>
+                </div>
+              )}
               <button
                 onClick={() => onDelete(notification.id)}
                 className="p-1 rounded hover:bg-gray-700 transition-colors"
@@ -88,6 +110,7 @@ const Notifications = () => {
     { value: "room", label: "Rooms" },
     { value: "file", label: "Files" },
     { value: "message", label: "Messages" },
+    { value: "invitation", label: "Invites" },
     { value: "system", label: "System" }
   ];
 
@@ -174,6 +197,44 @@ const Notifications = () => {
       }
     } catch (error) {
       console.error('Error marking all notifications as read:', error);
+    }
+  };
+
+  const handleAcceptInvitation = async (invitationId) => {
+    try {
+      const response = await acceptInvitationFromNotification(invitationId);
+
+      if (response.success) {
+        // Refresh notifications to show updated status
+        const notificationsResponse = await getNotifications(100, 1);
+        if (notificationsResponse.success) {
+          const transformedNotifications = notificationsResponse.data.map(transformActivityToNotification);
+          setNotifications(transformedNotifications);
+        }
+      } else {
+        console.error('Failed to accept invitation:', response.error);
+      }
+    } catch (error) {
+      console.error('Error accepting invitation:', error);
+    }
+  };
+
+  const handleDeclineInvitation = async (invitationId) => {
+    try {
+      const response = await declineInvitationFromNotification(invitationId);
+
+      if (response.success) {
+        // Refresh notifications to show updated status
+        const notificationsResponse = await getNotifications(100, 1);
+        if (notificationsResponse.success) {
+          const transformedNotifications = notificationsResponse.data.map(transformActivityToNotification);
+          setNotifications(transformedNotifications);
+        }
+      } else {
+        console.error('Failed to decline invitation:', response.error);
+      }
+    } catch (error) {
+      console.error('Error declining invitation:', error);
     }
   };
 
@@ -363,6 +424,8 @@ const Notifications = () => {
                 notification={notification}
                 onMarkRead={handleMarkRead}
                 onDelete={handleDelete}
+                onAcceptInvitation={handleAcceptInvitation}
+                onDeclineInvitation={handleDeclineInvitation}
               />
             ))}
           </div>

@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 
 // auto-generate activity descriptions
 const generateActivityDescription = (type, metadata, userName) => {
-  const { filename, message, oldName, newName, language, executionTime, exitCode, roomName } = metadata || {};
+  const { filename, message, oldName, newName, language, executionTime, exitCode, roomName, invitedUserEmail, invitedUserName, response } = metadata || {};
 
   switch (type) {
     case 'file_created':
@@ -28,6 +28,12 @@ const generateActivityDescription = (type, metadata, userName) => {
     case 'room_updated':
       const updateDetails = metadata.updateDetails ? ` (${metadata.updateDetails})` : '';
       return `${userName} updated room "${roomName}"${updateDetails}`;
+    case 'invitation_sent':
+      return `${userName} sent an invitation to ${invitedUserName || invitedUserEmail}`;
+    case 'invitation_accepted':
+      return `${userName} accepted an invitation to join "${roomName}"`;
+    case 'invitation_declined':
+      return `${userName} declined an invitation to join "${roomName}"`;
     default:
       return `${userName} performed ${type}`;
   }
@@ -103,7 +109,8 @@ const getRoomActivities = async (req, res) => {
       // Only show permanent activities by default
       const permanentTypes = [
         'file_created', 'file_edited', 'file_deleted', 'file_renamed',
-        'message_sent', 'code_executed', 'room_created', 'room_updated', 'room_deleted'
+        'message_sent', 'code_executed', 'room_created', 'room_updated', 'room_deleted',
+        'invitation_sent', 'invitation_accepted', 'invitation_declined'
       ];
       query.type = { $in: permanentTypes };
     }
@@ -154,7 +161,8 @@ const getAllRoomsActivities = async (req, res) => {
       // Only show permanent activities by default
       const permanentTypes = [
         'file_created', 'file_edited', 'file_deleted', 'file_renamed',
-        'message_sent', 'code_executed', 'room_created', 'room_updated', 'room_deleted'
+        'message_sent', 'code_executed', 'room_created', 'room_updated', 'room_deleted',
+        'invitation_sent', 'invitation_accepted', 'invitation_declined'
       ];
       query.type = { $in: permanentTypes };
     }

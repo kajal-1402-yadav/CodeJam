@@ -70,6 +70,34 @@ export const clearAllNotifications = async () => {
   }
 };
 
+// Accept invitation from notification
+export const acceptInvitationFromNotification = async (invitationId) => {
+  try {
+    const response = await api.post('/api/invitations/respond', {
+      invitationId,
+      response: 'accept'
+    });
+    return { success: true, data: response.data };
+  } catch (error) {
+    console.error('Failed to accept invitation:', error);
+    return { success: false, error: error.response?.data?.error || error.message };
+  }
+};
+
+// Decline invitation from notification
+export const declineInvitationFromNotification = async (invitationId) => {
+  try {
+    const response = await api.post('/api/invitations/respond', {
+      invitationId,
+      response: 'decline'
+    });
+    return { success: true, data: response.data };
+  } catch (error) {
+    console.error('Failed to decline invitation:', error);
+    return { success: false, error: error.response?.data?.error || error.message };
+  }
+};
+
 // Helper function to transform activity data into notification format
 export const transformActivityToNotification = (activity) => {
   const getNotificationType = (activityType) => {
@@ -89,6 +117,10 @@ export const transformActivityToNotification = (activity) => {
         return 'room';
       case 'code_executed':
         return 'system';
+      case 'invitation_sent':
+      case 'invitation_accepted':
+      case 'invitation_declined':
+        return 'invitation';
       default:
         return 'system';
     }
@@ -118,6 +150,12 @@ export const transformActivityToNotification = (activity) => {
         return 'User Joined';
       case 'user_left':
         return 'User Left';
+      case 'invitation_sent':
+        return 'Invitation Received';
+      case 'invitation_accepted':
+        return 'Invitation Accepted';
+      case 'invitation_declined':
+        return 'Invitation Declined';
       default:
         return 'Activity';
     }
@@ -150,6 +188,12 @@ export const transformActivityToNotification = (activity) => {
         return `${userName} joined room "${metadata?.roomName || 'room'}"`;
       case 'user_left':
         return `${userName} left room "${metadata?.roomName || 'room'}"`;
+      case 'invitation_sent':
+        return `${userName} sent you an invitation to join "${metadata?.roomName || 'room'}"`;
+      case 'invitation_accepted':
+        return `${userName} accepted an invitation to join "${metadata?.roomName || 'room'}"`;
+      case 'invitation_declined':
+        return `${userName} declined an invitation to join "${metadata?.roomName || 'room'}"`;
       default:
         return description || 'Activity occurred';
     }

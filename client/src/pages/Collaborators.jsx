@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Users, Search, Plus, Mail, UserPlus, Crown, Shield, Star } from "lucide-react";
 import Sidebar from "../components/Sidebar";
+import InviteCollaboratorModal from "../components/InviteCollaboratorModal";
 import { getAllRooms } from "../services/roomService";
 import useAuthContext from "../hooks/useAuthContext";
 
@@ -162,6 +163,10 @@ const Collaborators = () => {
     // Implement view profile logic
   };
 
+  const handleInviteButtonClick = () => {
+    setShowInviteModal(true);
+  };
+
   return (
     <div className="flex min-h-screen bg-[#1E1E1E] text-gray-200">
       <Sidebar />
@@ -184,7 +189,7 @@ const Collaborators = () => {
               />
             </div>
             <button
-              onClick={() => setShowInviteModal(true)}
+              onClick={handleInviteButtonClick}
               className="rounded-xl bg-[#A78BFA] px-6 py-3 text-base font-bold text-[#1E1E1E] shadow-lg shadow-[#A78BFA]/20 hover:bg-[#A78BFA]/90 transition-colors inline-flex items-center gap-2"
             >
               <UserPlus size={16} /> Invite Collaborator
@@ -258,6 +263,13 @@ const Collaborators = () => {
           )}
         </section>
       </main>
+
+      <InviteCollaboratorModal
+        isOpen={showInviteModal}
+        onClose={() => setShowInviteModal(false)}
+        rooms={rooms}
+        selectedRoomId={selectedRoom}
+      />
     </div>
   );
 };

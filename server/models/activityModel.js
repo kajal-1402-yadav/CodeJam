@@ -26,6 +26,9 @@ const activitySchema = new Schema({
         'room_created',
         'room_updated',
         'room_deleted',
+        'invitation_sent',
+        'invitation_accepted',
+        'invitation_declined',
         // Temporary activities (real-time only, not stored)
         'user_joined',
         'user_left',
