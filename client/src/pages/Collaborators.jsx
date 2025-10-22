@@ -267,7 +267,7 @@ const Collaborators = () => {
       <InviteCollaboratorModal
         isOpen={showInviteModal}
         onClose={() => setShowInviteModal(false)}
-        rooms={rooms}
+        rooms={rooms.filter(room => room.createdBy?._id === user?._id)}
         selectedRoomId={selectedRoom}
       />
     </div>

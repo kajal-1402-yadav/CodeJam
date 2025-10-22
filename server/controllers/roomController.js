@@ -229,6 +229,18 @@ const deleteRoom = async (req, res) => {
 
     // Delete all activities in the room
     await Activity.deleteMany({ room: roomId });
+    
+    // Delete all notification read statuses related to this room's activities
+    const UserActivityRead = require('../models/userActivityReadModel');
+    const UserActivityDeleted = require('../models/userActivityDeletedModel');
+    
+    // Get all activity IDs for this room
+    const roomActivities = await Activity.find({ room: roomId }).select('_id');
+    const activityIds = roomActivities.map(a => a._id);
+    
+    // Delete all read statuses and deleted statuses for these activities
+    await UserActivityRead.deleteMany({ activity: { $in: activityIds } });
+    await UserActivityDeleted.deleteMany({ activity: { $in: activityIds } });
 
     // Delete the room
     await Room.findByIdAndDelete(roomId);

@@ -30,8 +30,10 @@ const getNotifications = async (req, res) => {
     let query = { _id: { $nin: deletedActivityIds } };
 
     // Activities that should be shown to all room participants (room-wide activities)
+    // But exclude the current user's own activities
     const roomWideActivities = await Activity.find({
       room: { $in: roomIds },
+      user: { $ne: userId }, // Exclude current user's activities
       type: {
         $in: [
           'message_sent',
@@ -40,26 +42,42 @@ const getNotifications = async (req, res) => {
           'file_deleted',
           'file_renamed',
           'code_executed',
-          'room_created',
-          'room_updated',
-          'room_deleted'
+          'user_joined',
+          'user_left'
         ]
       },
       _id: { $nin: deletedActivityIds }
     });
 
-    // Activities that should only be shown to the specific user (user-specific activities)
+    // Only show invitation-related activities to the specific user
+    // and exclude their own join/leave activities
     const userSpecificActivities = await Activity.find({
-      user: userId,
-      type: {
-        $in: [
-          'user_joined',
-          'user_left',
-          'invitation_sent',
-          'invitation_accepted',
-          'invitation_declined'
-        ]
-      },
+      $or: [
+        {
+          user: userId,
+          type: {
+            $in: [
+              'invitation_sent',
+              'invitation_accepted',
+              'invitation_declined',
+              'room_created',
+              'room_updated',
+              'room_deleted'
+            ]
+          }
+        },
+        // Show other users' join/leave activities but not the current user's
+        {
+          user: { $ne: userId },
+          type: {
+            $in: [
+              'user_joined',
+              'user_left'
+            ]
+          },
+          room: { $in: roomIds } // Only for rooms the user is in
+        }
+      ],
       _id: { $nin: deletedActivityIds }
     });
 
@@ -125,8 +143,25 @@ const markNotificationAsRead = async (req, res) => {
     const { id } = req.params;
     const userId = req.user._id;
 
-    // Verify the activity exists and belongs to the user
-    const activity = await Activity.findOne({ _id: id, user: userId });
+    // Get rooms where user is creator or participant
+    const Room = require('../models/roomModel');
+    const userRooms = await Room.find({
+      $or: [
+        { createdBy: userId },
+        { participants: userId }
+      ]
+    }).select('_id');
+
+    const roomIds = userRooms.map(room => room._id);
+
+    // Verify the activity exists and is accessible to the user
+    const activity = await Activity.findOne({
+      _id: id,
+      $or: [
+        { user: userId }, // User-specific activities
+        { room: { $in: roomIds } } // Room-wide activities in user's rooms
+      ]
+    });
 
     if (!activity) {
       return res.status(404).json({ error: "Activity not found" });
@@ -176,10 +211,7 @@ const markAllNotificationsAsRead = async (req, res) => {
           'file_edited',
           'file_deleted',
           'file_renamed',
-          'code_executed',
-          'room_created',
-          'room_updated',
-          'room_deleted'
+          'code_executed'
         ]
       },
       _id: { $nin: deletedActivityIds }
@@ -194,7 +226,10 @@ const markAllNotificationsAsRead = async (req, res) => {
           'user_left',
           'invitation_sent',
           'invitation_accepted',
-          'invitation_declined'
+          'invitation_declined',
+          'room_created',
+          'room_updated',
+          'room_deleted'
         ]
       },
       _id: { $nin: deletedActivityIds }
@@ -237,8 +272,25 @@ const deleteNotification = async (req, res) => {
     const { id } = req.params;
     const userId = req.user._id;
 
-    // Verify the activity exists and belongs to the user
-    const activity = await Activity.findOne({ _id: id, user: userId });
+    // Get rooms where user is creator or participant
+    const Room = require('../models/roomModel');
+    const userRooms = await Room.find({
+      $or: [
+        { createdBy: userId },
+        { participants: userId }
+      ]
+    }).select('_id');
+
+    const roomIds = userRooms.map(room => room._id);
+
+    // Verify the activity exists and is accessible to the user
+    const activity = await Activity.findOne({
+      _id: id,
+      $or: [
+        { user: userId }, // User-specific activities
+        { room: { $in: roomIds } } // Room-wide activities in user's rooms
+      ]
+    });
 
     if (!activity) {
       return res.status(404).json({ error: "Notification not found" });
@@ -263,8 +315,11 @@ const clearAllNotifications = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    // Get rooms where user is creator or participant
+    // Get all activities that are visible to the user
+    // This includes both their own activities and activities from rooms they're in
     const Room = require('../models/roomModel');
+    
+    // Get all rooms where user is a participant or creator
     const userRooms = await Room.find({
       $or: [
         { createdBy: userId },
@@ -274,60 +329,64 @@ const clearAllNotifications = async (req, res) => {
 
     const roomIds = userRooms.map(room => room._id);
 
-    // Get activities that are deleted for this user
-    const deletedActivities = await UserActivityDeleted.find({ user: userId }).select('activity');
-    const deletedActivityIds = deletedActivities.map(item => item.activity);
-
-    // Get room-wide activities (not deleted)
-    const roomWideActivities = await Activity.find({
-      room: { $in: roomIds },
-      type: {
-        $in: [
-          'message_sent',
-          'file_created',
-          'file_edited',
-          'file_deleted',
-          'file_renamed',
-          'code_executed',
-          'room_created',
-          'room_updated',
-          'room_deleted'
-        ]
-      },
-      _id: { $nin: deletedActivityIds }
+    // Get all activity IDs that should be marked as deleted
+    // This includes both room activities and user's own activities
+    const activities = await Activity.find({
+      $or: [
+        // Room activities in user's rooms
+        {
+          room: { $in: roomIds },
+          type: {
+            $in: [
+              'message_sent',
+              'file_created',
+              'file_edited',
+              'file_deleted',
+              'file_renamed',
+              'code_executed',
+              'user_joined',
+              'user_left'
+            ]
+          }
+        },
+        // User's own activities
+        {
+          user: userId,
+          type: {
+            $in: [
+              'invitation_sent',
+              'invitation_accepted',
+              'invitation_declined',
+              'room_created',
+              'room_updated',
+              'room_deleted'
+            ]
+          }
+        }
+      ]
     }).select('_id');
 
-    // Get user-specific activities (not deleted)
-    const userSpecificActivities = await Activity.find({
-      user: userId,
-      type: {
-        $in: [
-          'user_joined',
-          'user_left',
-          'invitation_sent',
-          'invitation_accepted',
-          'invitation_declined'
-        ]
-      },
-      _id: { $nin: deletedActivityIds }
-    }).select('_id');
-
-    const allActivities = [...roomWideActivities, ...userSpecificActivities];
-
-    if (allActivities.length === 0) {
+    const activityIds = activities.map(a => a._id);
+    
+    if (activityIds.length === 0) {
       return res.status(200).json({ message: "No notifications to clear" });
     }
 
-    // Create deleted records for all activities
-    const deletedRecords = allActivities.map(activity => ({
-      user: userId,
-      activity: activity._id,
-      deletedAt: new Date()
+    // Mark all these activities as deleted for the current user
+    const operations = activityIds.map(activityId => ({
+      updateOne: {
+        filter: { user: userId, activity: activityId },
+        update: { $set: { deletedAt: new Date() } },
+        upsert: true
+      }
     }));
 
-    await UserActivityDeleted.insertMany(deletedRecords);
+    // Perform bulk write for better performance
+    if (operations.length > 0) {
+      await UserActivityDeleted.bulkWrite(operations, { ordered: false });
+    }
 
-    res.status(200).json({ message: `Cleared ${allActivities.length} notifications` });
+    res.status(200).json({ message: `Cleared all notifications` });
   } catch (error) {
     console.error('Error clearing notifications:', error);
     res.status(400).json({ error: error.message });

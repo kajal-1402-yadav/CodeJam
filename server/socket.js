@@ -88,7 +88,11 @@ const socketHandler = (io) => {
                             const populatedJoinActivity = await Activity.findById(joinActivity._id)
                                 .populate('user', 'username email')
                                 .populate('room', 'name');
-                            io.emit('activityCreated', populatedJoinActivity);
+                            // Emit to all sockets except the sender
+                            socket.broadcast.emit('activityCreated', populatedJoinActivity);
+                            
+                            // Don't show join activity to the user who just joined
+                            // The activity is still created in the database but not shown in real-time
                         }
                     } catch (activityError) {
                         console.error('Error creating join room activity:', activityError);
@@ -156,7 +160,8 @@ const socketHandler = (io) => {
                 const room = await Room.findById(roomId).select('name');
                 const roomName = room?.name || 'Unknown Room';
 
-                await Activity.create({
+                // Create the activity in database but don't emit it to the user who left
+                const leftActivity = await Activity.create({
                     room: roomId,
                     user: user._id,
                     type: 'user_left',
@@ -166,23 +171,31 @@ const socketHandler = (io) => {
                         action: 'user_left'
                     }
                 });
-            } catch (activityError) {
-                console.error('Error creating leave room activity:', activityError);
-            }
 
-            // Broadcast leave notification to other users in room (ephemeral)
+                // Emit leave activity to all other users in the room
+                const populatedLeftActivity = await Activity.findById(leftActivity._id)
+                    .populate('user', 'username email')
+                    .populate('room', 'name');
+                socket.to(roomId).emit('activityCreated', populatedLeftActivity);
+
+                // Broadcast leave notification to other users in room (ephemeral)
+            // Don't send to the user who left
             socket.to(roomId).emit("userLeftNotification", {
                 user: user.username || 'User',
                 timestamp: new Date()
             });
 
             // Also emit to dashboard for participant count updates (current active users)
-            io.emit("roomParticipantsUpdated", {
+            // But don't send to the user who left
+            socket.broadcast.emit("roomParticipantsUpdated", {
               roomId: roomId,
               participants: Array.from(roomUsers[roomId]).length
             });
 
             // Note: user_left activities are stored in database for tracking
+            } catch (activityError) {
+                console.error('Error creating leave room activity:', activityError);
+            }
         });
 
         //handle chat msg
@@ -241,7 +254,8 @@ const socketHandler = (io) => {
                         const populatedMessageActivity = await Activity.findById(messageActivity._id)
                             .populate('user', 'username email')
                             .populate('room', 'name');
-                        io.emit('activityCreated', populatedMessageActivity);
+                        // Emit to all sockets except the sender
+                        socket.broadcast.emit('activityCreated', populatedMessageActivity);
                     }
                 } catch (activityError) {
                     console.error('Error creating message activity:', activityError);
@@ -298,7 +312,8 @@ const socketHandler = (io) => {
                                     const populatedFileEditActivity = await Activity.findById(fileEditActivity._id)
                                         .populate('user', 'username email')
                                         .populate('room', 'name');
-                                    io.emit('activityCreated', populatedFileEditActivity);
+                                    // Emit to all sockets except the sender
+                                    socket.broadcast.emit('activityCreated', populatedFileEditActivity);
                                 }
                             }
                         } catch (activityError) {
@@ -354,7 +369,8 @@ const socketHandler = (io) => {
                         const populatedDeleteActivity = await Activity.findById(deleteActivity._id)
                             .populate('user', 'username email')
                             .populate('room', 'name');
-                        io.emit('activityCreated', populatedDeleteActivity);
+                        // Emit to all sockets except the sender
+                        socket.broadcast.emit('activityCreated', populatedDeleteActivity);
                     }
                 } catch (activityError) {
                     console.error('Error creating file deletion activity:', activityError);
@@ -408,7 +424,8 @@ const socketHandler = (io) => {
                         const populatedRenameActivity = await Activity.findById(renameActivity._id)
                             .populate('user', 'username email')
                             .populate('room', 'name');
-                        io.emit('activityCreated', populatedRenameActivity);
+                        // Emit to all sockets except the sender
+                        socket.broadcast.emit('activityCreated', populatedRenameActivity);
                     }
                 } catch (activityError) {
                     console.error('Error creating file rename activity:', activityError);
@@ -530,7 +547,8 @@ const socketHandler = (io) => {
                         const populatedCodeActivity = await Activity.findById(codeActivity._id)
                             .populate('user', 'username email')
                             .populate('room', 'name');
-                        io.emit('activityCreated', populatedCodeActivity);
+                        // Emit to all sockets except the sender
+                        socket.broadcast.emit('activityCreated', populatedCodeActivity);
                     }
                 } catch (activityError) {
                     console.error('Error creating code execution activity:', activityError);

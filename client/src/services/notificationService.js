@@ -70,6 +70,17 @@ export const clearAllNotifications = async () => {
   }
 };
 
+// Get pending invitations for the current user
+export const getPendingInvitations = async () => {
+  try {
+    const response = await api.get('/api/invitations/received?status=pending');
+    return { success: true, data: response.data };
+  } catch (error) {
+    console.error('Failed to get pending invitations:', error);
+    return { success: false, error: error.response?.data?.error || error.message };
+  }
+};
+
 // Accept invitation from notification
 export const acceptInvitationFromNotification = async (invitationId) => {
   try {
@@ -189,7 +200,10 @@ export const transformActivityToNotification = (activity) => {
       case 'user_left':
         return `${userName} left room "${metadata?.roomName || 'room'}"`;
       case 'invitation_sent':
-        return `${userName} sent you an invitation to join "${metadata?.roomName || 'room'}"`;
+        // For invitation_sent, the activity.user is the person who received the invitation
+        // We need to get the sender's name from the metadata
+        const senderName = metadata?.invitedByName || 'Someone';
+        return `${senderName} sent you an invitation to join "${metadata?.roomName || 'room'}"`;
       case 'invitation_accepted':
         return `${userName} accepted an invitation to join "${metadata?.roomName || 'room'}"`;
       case 'invitation_declined':

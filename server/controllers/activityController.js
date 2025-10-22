@@ -242,10 +242,7 @@ const getAllRoomsActivities = async (req, res) => {
           'file_edited',
           'file_deleted',
           'file_renamed',
-          'code_executed',
-          'room_created',
-          'room_updated',
-          'room_deleted'
+          'code_executed'
         ]
       },
       _id: { $nin: deletedActivityIds }
@@ -260,7 +257,10 @@ const getAllRoomsActivities = async (req, res) => {
           'user_left',
           'invitation_sent',
           'invitation_accepted',
-          'invitation_declined'
+          'invitation_declined',
+          'room_created',
+          'room_updated',
+          'room_deleted'
         ]
       },
       _id: { $nin: deletedActivityIds }

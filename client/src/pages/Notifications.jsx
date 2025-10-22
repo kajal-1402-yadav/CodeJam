@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Bell, Search, Check, X, Users, FileText, MessageSquare, Settings, UserPlus, CheckCircle, XCircle, Loader2 } from "lucide-react";
 import Sidebar from "../components/Sidebar";
+import InvitationModal from "../components/InvitationModal";
 import {
   getNotifications,
   markNotificationAsRead,
@@ -9,10 +10,11 @@ import {
   clearAllNotifications,
   transformActivityToNotification,
   acceptInvitationFromNotification,
-  declineInvitationFromNotification
+  declineInvitationFromNotification,
+  getPendingInvitations
 } from "../services/notificationService";
 
-const NotificationItem = ({ notification, onMarkRead, onDelete, onAcceptInvitation, onDeclineInvitation }) => {
+const NotificationItem = ({ notification, onMarkRead, onDelete, onAcceptInvitation, onDeclineInvitation, onInvitationClick }) => {
   const getNotificationIcon = (type) => {
     switch (type) {
       case 'room': return <Users className="text-blue-400" size={20} />;
@@ -35,8 +37,20 @@ const NotificationItem = ({ notification, onMarkRead, onDelete, onAcceptInvitati
     }
   };
 
+  const handleInvitationClick = () => {
+    const activityType = notification.activityData?.type;
+    // Only handle click for pending invitations
+    if (notification.type === 'invitation' && 
+        activityType === 'invitation_sent') {
+      onInvitationClick(notification);
+    }
+  };
+
   return (
-    <div className={`bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-4 shadow-md hover:border-[#A78BFA]/50 transition-all duration-300 group border-l-4 transform hover:-translate-y-1 ${getNotificationColor(notification.type)} ${!notification.isRead ? 'bg-[#A78BFA]/5 border-[#A78BFA]/30' : ''}`}>
+    <div 
+      className={`bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-4 shadow-md hover:border-[#A78BFA]/50 transition-all duration-300 group border-l-4 transform hover:-translate-y-1 ${getNotificationColor(notification.type)} ${!notification.isRead ? 'bg-[#A78BFA]/5 border-[#A78BFA]/30' : ''} ${notification.type === 'invitation' && notification.activityData?.type === 'invitation_sent' ? 'cursor-pointer' : ''}`}
+      onClick={handleInvitationClick}
+    >
       <div className="flex items-start gap-4">
         <div className="flex-shrink-0 mt-1">
           {getNotificationIcon(notification.type)}
@@ -53,6 +67,23 @@ const NotificationItem = ({ notification, onMarkRead, onDelete, onAcceptInvitati
                 {!notification.isRead && (
                   <span className="w-2 h-2 bg-[#A78BFA] rounded-full"></span>
                 )}
+                {notification.type === 'invitation' && (
+                  <span className={`text-xs font-medium ${
+                    notification.activityData?.type === 'invitation_accepted'
+                      ? 'text-green-400'
+                      : notification.activityData?.type === 'invitation_declined'
+                        ? 'text-red-400'
+                        : 'text-orange-400'
+                  }`}>
+                    {notification.activityData?.type === 'invitation_accepted'
+                      ? 'Accepted'
+                      : notification.activityData?.type === 'invitation_declined'
+                        ? 'Declined'
+                        : notification.activityData?.type === 'invitation_sent'
+                          ? 'Click to respond'
+                          : 'Pending'}
+                  </span>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -65,31 +96,6 @@ const NotificationItem = ({ notification, onMarkRead, onDelete, onAcceptInvitati
                   <Check size={16} className="text-green-400" />
                 </button>
               )}
-              {notification.type === 'invitation' && notification.activityData?.type === 'invitation_sent' && (
-                <div className="flex gap-1">
-                  <button
-                    onClick={() => onAcceptInvitation(notification.activityData?._id)}
-                    className="p-1 rounded hover:bg-green-600 transition-colors"
-                    title="Accept invitation"
-                  >
-                    <CheckCircle size={16} className="text-green-400" />
-                  </button>
-                  <button
-                    onClick={() => onDeclineInvitation(notification.activityData?._id)}
-                    className="p-1 rounded hover:bg-red-600 transition-colors"
-                    title="Decline invitation"
-                  >
-                    <XCircle size={16} className="text-red-400" />
-                  </button>
-                </div>
-              )}
-              <button
-                onClick={() => onDelete(notification.id)}
-                className="p-1 rounded hover:bg-gray-700 transition-colors"
-                title="Delete notification"
-              >
-                <X size={16} className="text-red-400" />
-              </button>
             </div>
           </div>
         </div>
@@ -106,6 +112,12 @@ const Notifications = () => {
   const [filterType, setFilterType] = useState("All");
   const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
   const [isClearingAll, setIsClearingAll] = useState(false);
+  
+  // Invitation modal state
+  const [showInvitationModal, setShowInvitationModal] = useState(false);
+  const [selectedInvitation, setSelectedInvitation] = useState(null);
+  const [pendingInvitations, setPendingInvitations] = useState([]);
+  const [isProcessingInvitation, setIsProcessingInvitation] = useState(false);
 
   const notificationTypes = [
     { value: "All", label: "All Notifications" },
@@ -123,11 +135,15 @@ const Notifications = () => {
       setError(null);
 
       try {
-        const response = await getNotifications(100, 1); // Get more notifications for better UX
+        // Load both notifications and pending invitations
+        const [notificationsResponse, invitationsResponse] = await Promise.all([
+          getNotifications(100, 1),
+          getPendingInvitations()
+        ]);
 
-        if (response.success) {
+        if (notificationsResponse.success) {
           // Transform activities to notification format
-          const transformedNotifications = response.data.map(transformActivityToNotification);
+          const transformedNotifications = notificationsResponse.data.map(transformActivityToNotification);
 
           // Remove duplicates based on activity ID or content
           const uniqueNotifications = transformedNotifications.filter((notification, index, self) =>
@@ -141,7 +157,11 @@ const Notifications = () => {
 
           setNotifications(uniqueNotifications);
         } else {
-          setError(response.error || 'Failed to load notifications');
+          setError(notificationsResponse.error || 'Failed to load notifications');
+        }
+
+        if (invitationsResponse.success) {
+          setPendingInvitations(invitationsResponse.data);
         }
       } catch (err) {
         setError('Failed to load notifications');
@@ -216,17 +236,33 @@ const Notifications = () => {
     }
   };
 
-  const handleAcceptInvitation = async (invitationId) => {
+  const handleAcceptInvitation = async () => {
+    if (!selectedInvitation || !selectedInvitation._id) {
+      console.error('No valid invitation selected');
+      return;
+    }
+
+    console.log('Accepting invitation with ID:', selectedInvitation._id);
+    console.log('Selected invitation:', selectedInvitation);
+
+    setIsProcessingInvitation(true);
     try {
-      const response = await acceptInvitationFromNotification(invitationId);
+      const response = await acceptInvitationFromNotification(selectedInvitation._id);
+      console.log('Accept invitation response:', response);
 
       if (response.success) {
-        // Refresh notifications to show updated status
-        const notificationsResponse = await getNotifications(100, 1);
+        // Close modal and refresh data
+        setShowInvitationModal(false);
+        setSelectedInvitation(null);
+        
+        // Refresh notifications and invitations
+        const [notificationsResponse, invitationsResponse] = await Promise.all([
+          getNotifications(100, 1),
+          getPendingInvitations()
+        ]);
+
         if (notificationsResponse.success) {
           const transformedNotifications = notificationsResponse.data.map(transformActivityToNotification);
-
-          // Remove duplicates
           const uniqueNotifications = transformedNotifications.filter((notification, index, self) =>
             index === self.findIndex(n =>
               n.id === notification.id ||
@@ -235,28 +271,53 @@ const Notifications = () => {
                n.type === notification.type)
             )
           );
-
           setNotifications(uniqueNotifications);
         }
+
+        if (invitationsResponse.success) {
+          setPendingInvitations(invitationsResponse.data);
+        }
+
+        alert('Successfully joined the room!');
       } else {
         console.error('Failed to accept invitation:', response.error);
+        alert('Failed to accept invitation: ' + (response.error || 'Unknown error'));
       }
     } catch (error) {
       console.error('Error accepting invitation:', error);
+      alert('Error accepting invitation: ' + error.message);
+    } finally {
+      setIsProcessingInvitation(false);
     }
   };
 
-  const handleDeclineInvitation = async (invitationId) => {
+  const handleDeclineInvitation = async () => {
+    if (!selectedInvitation || !selectedInvitation._id) {
+      console.error('No valid invitation selected');
+      return;
+    }
+
+    console.log('Declining invitation with ID:', selectedInvitation._id);
+    console.log('Selected invitation:', selectedInvitation);
+
+    setIsProcessingInvitation(true);
     try {
-      const response = await declineInvitationFromNotification(invitationId);
+      const response = await declineInvitationFromNotification(selectedInvitation._id);
+      console.log('Decline invitation response:', response);
 
       if (response.success) {
-        // Refresh notifications to show updated status
-        const notificationsResponse = await getNotifications(100, 1);
+        // Close modal and refresh data
+        setShowInvitationModal(false);
+        setSelectedInvitation(null);
+        
+        // Refresh notifications and invitations
+        const [notificationsResponse, invitationsResponse] = await Promise.all([
+          getNotifications(100, 1),
+          getPendingInvitations()
+        ]);
+
         if (notificationsResponse.success) {
           const transformedNotifications = notificationsResponse.data.map(transformActivityToNotification);
-
-          // Remove duplicates
           const uniqueNotifications = transformedNotifications.filter((notification, index, self) =>
             index === self.findIndex(n =>
               n.id === notification.id ||
@@ -265,14 +326,23 @@ const Notifications = () => {
                n.type === notification.type)
             )
           );
-
           setNotifications(uniqueNotifications);
         }
+
+        if (invitationsResponse.success) {
+          setPendingInvitations(invitationsResponse.data);
+        }
+
+        alert('Invitation declined successfully.');
       } else {
         console.error('Failed to decline invitation:', response.error);
+        alert('Failed to decline invitation: ' + (response.error || 'Unknown error'));
       }
     } catch (error) {
       console.error('Error declining invitation:', error);
+      alert('Error declining invitation: ' + error.message);
+    } finally {
+      setIsProcessingInvitation(false);
     }
   };
 
@@ -290,6 +360,87 @@ const Notifications = () => {
       console.error('Error clearing all notifications:', error);
     } finally {
       setIsClearingAll(false);
+    }
+  };
+
+  const handleInvitationClick = async (notification) => {
+    console.log('Invitation click - notification:', notification);
+    
+    if (notification.type !== 'invitation') {
+      markNotificationAsRead(notification.id);
+      return;
+    }
+
+    // Mark notification as read
+    markNotificationAsRead(notification.id);
+
+    // Get the invitation ID from the activity metadata
+    const invitationId = notification.activityData?.metadata?.invitationId || notification.activityData?._id;
+    console.log('Invitation ID from metadata:', invitationId);
+    
+    if (!invitationId) {
+      console.error('No invitation ID found in notification:', notification);
+      alert('Invalid invitation data. Please refresh the page and try again.');
+      return;
+    }
+
+    // First try to find the invitation by invitation ID in both _id and id fields
+    const invitations = Array.isArray(pendingInvitations) ? pendingInvitations : [];
+    console.log('Current pending invitations:', invitations);
+    
+    // Try to find by _id or id field
+    let invitation = invitations.find(inv => {
+      if (!inv) return false;
+      return inv._id === invitationId || inv.id === invitationId;
+    });
+    
+    console.log('Found invitation in local data:', invitation);
+    
+    // If not found, try to fetch fresh invitations
+    if (!invitation) {
+      try {
+        console.log('Fetching fresh invitations...');
+        const response = await getPendingInvitations();
+        console.log('Fresh invitations response:', response);
+        if (response && response.success && Array.isArray(response.data)) {
+          // Update local state with fresh data
+          setPendingInvitations(response.data);
+          
+          // Try to find the invitation again
+          invitation = response.data.find(inv => {
+            if (!inv) return false;
+            return inv._id === invitationId || inv.id === invitationId;
+          });
+          
+          console.log('Found invitation in fresh data:', invitation);
+        }
+      } catch (error) {
+        console.error('Error fetching invitations:', error);
+      }
+    }
+
+    // If we still don't have an invitation, try to create one from notification data
+    if (!invitation && notification.activityData) {
+      console.log('Creating invitation from notification data');
+      invitation = {
+        _id: invitationId,
+        room: notification.activityData.room || { _id: 'unknown', name: 'Unknown Room' },
+        invitedBy: notification.activityData.user || { _id: 'unknown', username: 'Unknown User' },
+        status: 'pending',
+        createdAt: notification.activityData.createdAt || new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        message: notification.message || 'You have been invited to join a room'
+      };
+    }
+
+    // If we have an invitation, show the modal
+    if (invitation) {
+      console.log('Showing invitation modal with:', invitation);
+      setSelectedInvitation(invitation);
+      setShowInvitationModal(true);
+    } else {
+      console.error('Invitation not found with ID:', invitationId);
+      alert('Invitation not found. It may have expired or been already responded to.');
     }
   };
 
@@ -471,6 +622,7 @@ const Notifications = () => {
                 onDelete={handleDelete}
                 onAcceptInvitation={handleAcceptInvitation}
                 onDeclineInvitation={handleDeclineInvitation}
+                onInvitationClick={handleInvitationClick}
               />
             ))}
           </div>
@@ -485,6 +637,19 @@ const Notifications = () => {
           )}
         </section>
       </main>
+
+      {/* Invitation Modal */}
+      <InvitationModal
+        isOpen={showInvitationModal}
+        onClose={() => {
+          setShowInvitationModal(false);
+          setSelectedInvitation(null);
+        }}
+        invitation={selectedInvitation}
+        onAccept={handleAcceptInvitation}
+        onDecline={handleDeclineInvitation}
+        isProcessing={isProcessingInvitation}
+      />
     </div>
   );
 };

@@ -65,24 +65,33 @@ const sendInvitation = async (req, res) => {
             const oneHourAgo = new Date(Date.now() - 3600000);
             const existingInvitationActivity = await Activity.findOne({
                 room: roomId,
-                user: invitedBy,
+                user: invitedUser._id, // Changed: activity should be for the invited user, not the sender
                 type: 'invitation_sent',
                 'metadata.invitedUserEmail': invitedUser.email,
                 createdAt: { $gte: oneHourAgo }
             });
 
             if (!existingInvitationActivity) {
-                await Activity.create({
+                const activity = await Activity.create({
                     type: 'invitation_sent',
-                    user: invitedBy,
+                    user: invitedUser._id, // Changed: activity should be for the invited user, not the sender
                     room: roomId,
                     description: `${req.user.username} sent an invitation to ${invitedUser.username}`,
                     metadata: {
                         invitedUserEmail: invitedUser.email,
                         invitedUserName: invitedUser.username,
-                        roomName: room.name || 'Unknown Room'
+                        roomName: room.name || 'Unknown Room',
+                        invitedBy: invitedBy, // Add who sent the invitation
+                        invitedByName: req.user.username, // Add sender's name for easier frontend handling
+                        invitationId: invitation._id // Add invitation ID for linking
                     }
                 });
+
+                // Populate the activity with user information for better frontend handling
+                await Activity.populate(activity, [
+                    { path: 'user', select: 'username email' },
+                    { path: 'room', select: 'name' }
+                ]);
             }
         } catch (activityError) {
             console.error('Error creating invitation activity:', activityError);
@@ -193,6 +202,21 @@ const respondToInvitation = async (req, res) => {
             roomUpdate = {
                 $addToSet: { participants: userId }
             };
+            
+            // Emit socket event for room participant update
+            if (req.io) {
+                req.io.emit("roomParticipantsUpdated", {
+                    roomId: invitation.room,
+                    participants: (await Room.findById(invitation.room)).participants.length + 1
+                });
+                
+                // Emit userJoinedRoom event for dashboard updates
+                const room = await Room.findById(invitation.room).populate('createdBy participants', 'name email _id username');
+                req.io.emit("userJoinedRoom", {
+                    roomId: invitation.room,
+                    room: room
+                });
+            }
         }
 
         // Update the room
