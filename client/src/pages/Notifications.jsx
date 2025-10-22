@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Bell, Search, Check, X, MoreVertical, Users, FileText, MessageSquare, Settings, UserPlus, CheckCircle, XCircle } from "lucide-react";
+import { Bell, Search, Check, X, MoreVertical, Users, FileText, MessageSquare, Settings, UserPlus, CheckCircle, XCircle, Loader2 } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import {
   getNotifications,
@@ -36,7 +36,7 @@ const NotificationItem = ({ notification, onMarkRead, onDelete, onAcceptInvitati
   };
 
   return (
-    <div className={`bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-4 shadow-md hover:border-[#A78BFA]/50 transition-all duration-300 group border-l-4 ${getNotificationColor(notification.type)} ${!notification.isRead ? 'bg-[#A78BFA]/5' : ''}`}>
+    <div className={`bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-4 shadow-md hover:border-[#A78BFA]/50 transition-all duration-300 group border-l-4 transform hover:-translate-y-1 ${getNotificationColor(notification.type)} ${!notification.isRead ? 'bg-[#A78BFA]/5 border-[#A78BFA]/30' : ''}`}>
       <div className="flex items-start gap-4">
         <div className="flex-shrink-0 mt-1">
           {getNotificationIcon(notification.type)}
@@ -104,6 +104,8 @@ const Notifications = () => {
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState("All");
+  const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
+  const [isClearingAll, setIsClearingAll] = useState(false);
 
   const notificationTypes = [
     { value: "All", label: "All Notifications" },
@@ -185,6 +187,7 @@ const Notifications = () => {
   };
 
   const handleMarkAllRead = async () => {
+    setIsMarkingAllRead(true);
     try {
       const response = await markAllNotificationsAsRead();
 
@@ -197,6 +200,8 @@ const Notifications = () => {
       }
     } catch (error) {
       console.error('Error marking all notifications as read:', error);
+    } finally {
+      setIsMarkingAllRead(false);
     }
   };
 
@@ -239,6 +244,7 @@ const Notifications = () => {
   };
 
   const handleClearAll = async () => {
+    setIsClearingAll(true);
     try {
       const response = await clearAllNotifications();
 
@@ -249,6 +255,8 @@ const Notifications = () => {
       }
     } catch (error) {
       console.error('Error clearing all notifications:', error);
+    } finally {
+      setIsClearingAll(false);
     }
   };
 
@@ -281,7 +289,7 @@ const Notifications = () => {
       <div className="flex min-h-screen bg-[#1E1E1E] text-gray-200">
         <Sidebar />
         <main className="flex-1 p-8 ml-64">
-          <div className="flex items-center justify-center h-64">
+          <div className="flex items-center justify-center min-h-[calc(100vh-8rem)]">
             <div className="text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#A78BFA] mx-auto mb-4"></div>
               <p className="text-gray-400">Loading notifications...</p>
@@ -297,7 +305,7 @@ const Notifications = () => {
       <div className="flex min-h-screen bg-[#1E1E1E] text-gray-200">
         <Sidebar />
         <main className="flex-1 p-8 ml-64">
-          <div className="flex items-center justify-center h-64">
+          <div className="flex items-center justify-center min-h-[calc(100vh-8rem)]">
             <div className="text-center">
               <Bell className="mx-auto text-gray-500 mb-4" size={48} />
               <p className="text-gray-400 text-lg mb-2">Failed to load notifications</p>
@@ -334,16 +342,20 @@ const Notifications = () => {
               {unreadCount > 0 && (
                 <button
                   onClick={handleMarkAllRead}
-                  className="rounded-xl bg-green-600/20 px-4 py-3 text-sm font-bold text-green-400 border border-green-500/30 hover:bg-green-600/30 transition-colors"
+                  disabled={isMarkingAllRead}
+                  className="rounded-xl bg-green-600/20 px-4 py-3 text-sm font-bold text-green-400 border border-green-500/30 hover:bg-green-600/30 transition-all duration-200 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  Mark All Read
+                  {isMarkingAllRead && <Loader2 className="animate-spin" size={16} />}
+                  {isMarkingAllRead ? 'Marking...' : 'Mark All Read'}
                 </button>
               )}
               <button
                 onClick={handleClearAll}
-                className="rounded-xl bg-red-600/20 px-4 py-3 text-sm font-bold text-red-400 border border-red-500/30 hover:bg-red-600/30 transition-colors"
+                disabled={isClearingAll}
+                className="rounded-xl bg-red-600/20 px-4 py-3 text-sm font-bold text-red-400 border border-red-500/30 hover:bg-red-600/30 transition-all duration-200 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                Clear All
+                {isClearingAll && <Loader2 className="animate-spin" size={16} />}
+                {isClearingAll ? 'Clearing...' : 'Clear All'}
               </button>
             </div>
           </div>
@@ -351,7 +363,7 @@ const Notifications = () => {
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
-          <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-5 shadow-lg">
+          <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-5 shadow-lg transform hover:scale-105 transition-all duration-300 hover:border-[#A78BFA]/30">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-gray-400 text-sm font-medium">Total Notifications</p>
@@ -363,7 +375,7 @@ const Notifications = () => {
             </div>
           </div>
 
-          <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-5 shadow-lg">
+          <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-5 shadow-lg transform hover:scale-105 transition-all duration-300 hover:border-[#A78BFA]/30">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-gray-400 text-sm font-medium">Unread</p>
@@ -375,7 +387,7 @@ const Notifications = () => {
             </div>
           </div>
 
-          <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-5 shadow-lg">
+          <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-5 shadow-lg transform hover:scale-105 transition-all duration-300 hover:border-[#A78BFA]/30">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-gray-400 text-sm font-medium">This Week</p>
@@ -401,10 +413,10 @@ const Notifications = () => {
             <button
               key={type.value}
               onClick={() => setFilterType(type.value)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
                 filterType === type.value
-                  ? 'bg-[#A78BFA] text-[#1E1E1E]'
-                  : 'bg-[#1E1E1E]/50 border border-gray-700 text-gray-300 hover:border-[#A78BFA]/50 hover:text-white'
+                  ? 'bg-[#A78BFA] text-[#1E1E1E] shadow-lg shadow-[#A78BFA]/20'
+                  : 'bg-[#1E1E1E]/50 border border-gray-700 text-gray-300 hover:border-[#A78BFA]/50 hover:text-white hover:bg-[#A78BFA]/10'
               }`}
             >
               {type.label}
@@ -430,10 +442,12 @@ const Notifications = () => {
             ))}
           </div>
           {notificationsWithFormattedTime.length === 0 && (
-            <div className="text-center py-12">
-              <Bell className="mx-auto text-gray-500 mb-4" size={48} />
-              <p className="text-gray-500 text-lg">No notifications found</p>
-              <p className="text-gray-400 text-sm mt-2">Try a different search or filter</p>
+            <div className="text-center py-12 min-h-[calc(100vh-20rem)] flex items-center justify-center">
+              <div>
+                <Bell className="mx-auto text-gray-500 mb-4" size={48} />
+                <p className="text-gray-500 text-lg">No notifications found</p>
+                <p className="text-gray-400 text-sm mt-2">Try a different search or filter</p>
+              </div>
             </div>
           )}
         </section>

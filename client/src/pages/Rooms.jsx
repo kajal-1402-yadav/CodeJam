@@ -137,7 +137,13 @@ const Rooms = () => {
       if (room) {
         setRooms(prev => {
           const exists = prev.some(r => String(r._id) === String(room._id));
-          return exists ? prev.map(r => String(r._id) === String(room._id) ? room : r) : [room, ...prev];
+          if (exists) {
+            console.log('Room already exists in state, updating participants');
+            return prev.map(r => String(r._id) === String(room._id) ? room : r);
+          } else {
+            console.log('Adding newly joined room to state:', room.name);
+            return [room, ...prev];
+          }
         });
       }
     });
@@ -150,8 +156,19 @@ const Rooms = () => {
     // Listen for new rooms created (to update UI if needed)
     socket.on('roomCreated', (newRoom) => {
       console.log('Received roomCreated event:', newRoom);
-      if (String(newRoom.createdBy) === String(user._id) || (Array.isArray(newRoom.participants) && newRoom.participants.some(p => String(p._id) === String(user._id)))) {
-        setRooms(prev => [newRoom, ...prev]);
+      // Only add the room if current user is NOT the creator (since we already added it manually)
+      // and current user is a participant
+      if (String(newRoom.createdBy) !== String(user._id) &&
+          (Array.isArray(newRoom.participants) && newRoom.participants.some(p => String(p._id) === String(user._id)))) {
+        setRooms(prev => {
+          const exists = prev.some(r => String(r._id) === String(newRoom._id));
+          if (exists) {
+            console.log('Room already exists in state, not adding duplicate');
+            return prev;
+          }
+          console.log('Adding new room from socket event:', newRoom.name);
+          return [newRoom, ...prev];
+        });
       }
     });
 
@@ -229,11 +246,12 @@ const Rooms = () => {
       console.log('Room created successfully:', result.data);
       setRooms(prev => {
         // Check if room already exists to prevent duplicates
-        const exists = prev.some(room => room._id === result.data._id);
+        const exists = prev.some(room => String(room._id) === String(result.data._id));
         if (exists) {
           console.log('Room already exists in state, not adding duplicate');
           return prev;
         }
+        console.log('Adding newly created room to state:', result.data.name);
         return [result.data, ...prev];
       });
       setNewRoomName("");
@@ -280,9 +298,9 @@ const Rooms = () => {
 
   const handleUpdateRoom = async (roomId, updateData) => {
     const result = await updateRoom(roomId, updateData);
-    
+
     if (result.success) {
-      setRooms(prev => prev.map(room => room._id === roomId ? result.data : room));
+      setRooms(prev => prev.map(room => String(room._id) === String(roomId) ? result.data : room));
     } else {
       console.error('Error updating room:', result.error);
       setError(result.error);
@@ -302,7 +320,7 @@ const Rooms = () => {
     const result = await deleteRoom(roomToDelete._id);
     
     if (result.success) {
-      setRooms(prev => prev.filter(r => r._id !== roomToDelete._id));
+      setRooms(prev => prev.filter(r => String(r._id) !== String(roomToDelete._id)));
       setShowDeleteModal(false);
       setRoomToDelete(null);
     } else {
