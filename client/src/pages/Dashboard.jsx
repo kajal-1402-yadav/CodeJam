@@ -192,7 +192,22 @@ const Dashboard = () => {
     if (socket) {
       // Listen for new activities
       socket.on('activityCreated', (newActivity) => {
-        setActivities(prev => [newActivity, ...prev.slice(0, 9)]); // Keep only latest 10
+        setActivities(prev => {
+          // Check if this activity already exists to prevent duplicates
+          const exists = prev.some(activity =>
+            activity._id === newActivity._id ||
+            (activity.description === newActivity.description &&
+             activity.user?._id === newActivity.user?._id &&
+             activity.room?._id === newActivity.room?._id)
+          );
+
+          if (exists) {
+            return prev; // Don't add duplicate
+          }
+
+          // Add new activity and keep only latest 10
+          return [newActivity, ...prev.slice(0, 9)];
+        });
       });
 
       // Listen for room updates (participants joining/leaving)

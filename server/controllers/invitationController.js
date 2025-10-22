@@ -59,18 +59,34 @@ const sendInvitation = async (req, res) => {
             message
         });
 
-        // Create activity for invitation sent
-        await Activity.create({
-            type: 'invitation_sent',
-            user: invitedBy,
-            room: roomId,
-            description: `${req.user.username} invited ${invitedUser.username} to join ${room.name}`,
-            metadata: {
-                invitedUserEmail: invitedUser.email,
-                invitedUserName: invitedUser.username,
-                roomName: room.name || 'Unknown Room'
+        // Create activity for invitation sent (check for duplicates)
+        try {
+            // Check if an invitation activity for this user to this room already exists in the last hour
+            const oneHourAgo = new Date(Date.now() - 3600000);
+            const existingInvitationActivity = await Activity.findOne({
+                room: roomId,
+                user: invitedBy,
+                type: 'invitation_sent',
+                'metadata.invitedUserEmail': invitedUser.email,
+                createdAt: { $gte: oneHourAgo }
+            });
+
+            if (!existingInvitationActivity) {
+                await Activity.create({
+                    type: 'invitation_sent',
+                    user: invitedBy,
+                    room: roomId,
+                    description: `${req.user.username} sent an invitation to ${invitedUser.username}`,
+                    metadata: {
+                        invitedUserEmail: invitedUser.email,
+                        invitedUserName: invitedUser.username,
+                        roomName: room.name || 'Unknown Room'
+                    }
+                });
             }
-        });
+        } catch (activityError) {
+            console.error('Error creating invitation activity:', activityError);
+        }
 
         // Populate the invitation for response
         const populatedInvitation = await Invitation.findById(invitation._id)
@@ -185,16 +201,32 @@ const respondToInvitation = async (req, res) => {
         // Get room data for activity
         const roomData = await Room.findById(invitation.room);
 
-        // Create activity for invitation response
-        await Activity.create({
-            type: response === 'accept' ? 'invitation_accepted' : 'invitation_declined',
-            user: userId,
-            room: invitation.room,
-            metadata: {
-                roomName: roomData.name,
-                response: response
+        // Create activity for invitation response (check for duplicates)
+        try {
+            // Check if an invitation response activity already exists for this invitation
+            const oneHourAgo = new Date(Date.now() - 3600000);
+            const existingResponseActivity = await Activity.findOne({
+                room: invitation.room,
+                user: userId,
+                type: response === 'accept' ? 'invitation_accepted' : 'invitation_declined',
+                createdAt: { $gte: oneHourAgo }
+            });
+
+            if (!existingResponseActivity) {
+                await Activity.create({
+                    type: response === 'accept' ? 'invitation_accepted' : 'invitation_declined',
+                    user: userId,
+                    room: invitation.room,
+                    description: `${req.user.username} ${response === 'accept' ? 'accepted' : 'declined'} an invitation to join "${roomData.name}"`,
+                    metadata: {
+                        roomName: roomData.name,
+                        response: response
+                    }
+                });
             }
-        });
+        } catch (activityError) {
+            console.error('Error creating invitation response activity:', activityError);
+        }
 
         // Populate the response
         const populatedInvitation = await Invitation.findById(invitationId)

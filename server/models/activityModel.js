@@ -48,4 +48,16 @@ const activitySchema = new Schema({
 activitySchema.index({ room: 1, createdAt: -1 });
 activitySchema.index({ user: 1, createdAt: -1 });
 
+// Add compound index to prevent duplicate activities for similar events
+activitySchema.index({
+  room: 1,
+  user: 1,
+  type: 1,
+  'metadata.filename': 1,
+  'metadata.fileId': 1
+}, {
+  unique: false, // Allow multiple activities, but help with deduplication queries
+  sparse: true
+});
+
 module.exports = mongoose.model('Activity', activitySchema);

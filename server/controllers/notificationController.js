@@ -1,4 +1,6 @@
 const Activity = require("../models/activityModel");
+const UserActivityRead = require("../models/userActivityReadModel");
+const UserActivityDeleted = require("../models/userActivityDeletedModel");
 const mongoose = require("mongoose");
 
 // Get all notifications for the current user
@@ -9,49 +11,137 @@ const getNotifications = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const type = req.query.type;
 
-    // Build query
-    let query = {
-      user: userId
-    };
+    // Get activities that are deleted for this user
+    const deletedActivities = await UserActivityDeleted.find({ user: userId }).select('activity');
+    const deletedActivityIds = deletedActivities.map(item => item.activity);
 
-    // Filter by type if provided
+    // Get rooms where user is creator or participant
+    const Room = require('../models/roomModel');
+    const userRooms = await Room.find({
+      $or: [
+        { createdBy: userId },
+        { participants: userId }
+      ]
+    }).select('_id');
+
+    const roomIds = userRooms.map(room => room._id);
+
+    // Build query for activities - different logic for different activity types
+    let query = { _id: { $nin: deletedActivityIds } };
+
+    // Activities that should be shown to all room participants (room-wide activities)
+    const roomWideActivities = await Activity.find({
+      room: { $in: roomIds },
+      type: {
+        $in: [
+          'message_sent',
+          'file_created',
+          'file_edited',
+          'file_deleted',
+          'file_renamed',
+          'code_executed',
+          'room_created',
+          'room_updated',
+          'room_deleted'
+        ]
+      },
+      _id: { $nin: deletedActivityIds }
+    });
+
+    // Activities that should only be shown to the specific user (user-specific activities)
+    const userSpecificActivities = await Activity.find({
+      user: userId,
+      type: {
+        $in: [
+          'user_joined',
+          'user_left',
+          'invitation_sent',
+          'invitation_accepted',
+          'invitation_declined'
+        ]
+      },
+      _id: { $nin: deletedActivityIds }
+    });
+
+    // Combine both types of activities
+    const allActivities = [...roomWideActivities, ...userSpecificActivities];
+
+    // Sort by creation date (newest first) and apply pagination
+    const sortedActivities = allActivities.sort((a, b) => b.createdAt - a.createdAt);
+    const paginatedActivities = sortedActivities.slice((page - 1) * limit, page * limit);
+
+    // Filter by type if provided (apply to already filtered activities)
+    let filteredActivities = paginatedActivities;
     if (type && type !== 'All') {
-      // Map frontend types to activity types
       const typeMapping = {
         'room': ['room_created', 'room_updated', 'room_deleted', 'user_joined', 'user_left'],
         'file': ['file_created', 'file_edited', 'file_deleted', 'file_renamed'],
         'message': ['message_sent'],
-        'system': ['code_executed']
+        'system': ['code_executed'],
+        'invitation': ['invitation_sent', 'invitation_accepted', 'invitation_declined']
       };
 
       if (typeMapping[type]) {
-        query.type = { $in: typeMapping[type] };
+        filteredActivities = paginatedActivities.filter(activity =>
+          typeMapping[type].includes(activity.type)
+        );
       }
     }
 
-    const activities = await Activity.find(query)
-      .populate('user', 'username email')
-      .populate('room', 'name')
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit);
+    // Populate user and room information
+    const populatedActivities = await Activity.populate(filteredActivities, [
+      { path: 'user', select: 'username email' },
+      { path: 'room', select: 'name' }
+    ]);
 
-    res.status(200).json(activities);
+    // Get read status for all these activities
+    const activityIds = populatedActivities.map(activity => activity._id);
+    const readStatuses = await UserActivityRead.find({
+      user: userId,
+      activity: { $in: activityIds }
+    }).select('activity isRead');
+
+    // Create a map of activity ID to read status
+    const readStatusMap = {};
+    readStatuses.forEach(status => {
+      readStatusMap[status.activity.toString()] = status.isRead;
+    });
+
+    // Add read status to activities
+    const activitiesWithReadStatus = populatedActivities.map(activity => ({
+      ...activity.toObject(),
+      isRead: readStatusMap[activity._id.toString()] || false
+    }));
+
+    res.status(200).json(activitiesWithReadStatus);
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 };
 
-// Mark a notification as read (for activities, we'll just return success since activities are read-only)
+// Mark a notification as read
 const markNotificationAsRead = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user._id;
 
-    // Since activities are read-only, we'll just return success
-    // In a real notification system, you might want to track read status separately
+    // Verify the activity exists and belongs to the user
+    const activity = await Activity.findOne({ _id: id, user: userId });
+
+    if (!activity) {
+      return res.status(404).json({ error: "Activity not found" });
+    }
+
+    // Update or create the read status record
+    await UserActivityRead.findOneAndUpdate(
+      { user: userId, activity: id },
+      { isRead: true },
+      { upsert: true, new: true }
+    );
+
     res.status(200).json({ message: "Notification marked as read" });
   } catch (error) {
+    console.error('Error marking notification as read:', error);
     res.status(400).json({ error: error.message });
   }
 };
@@ -61,9 +151,82 @@ const markAllNotificationsAsRead = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    // Since activities are read-only, we'll just return success
-    res.status(200).json({ message: "All notifications marked as read" });
+    // Get rooms where user is creator or participant
+    const Room = require('../models/roomModel');
+    const userRooms = await Room.find({
+      $or: [
+        { createdBy: userId },
+        { participants: userId }
+      ]
+    }).select('_id');
+
+    const roomIds = userRooms.map(room => room._id);
+
+    // Get activities that are deleted for this user
+    const deletedActivities = await UserActivityDeleted.find({ user: userId }).select('activity');
+    const deletedActivityIds = deletedActivities.map(item => item.activity);
+
+    // Get room-wide activities (not deleted)
+    const roomWideActivities = await Activity.find({
+      room: { $in: roomIds },
+      type: {
+        $in: [
+          'message_sent',
+          'file_created',
+          'file_edited',
+          'file_deleted',
+          'file_renamed',
+          'code_executed',
+          'room_created',
+          'room_updated',
+          'room_deleted'
+        ]
+      },
+      _id: { $nin: deletedActivityIds }
+    }).select('_id');
+
+    // Get user-specific activities (not deleted)
+    const userSpecificActivities = await Activity.find({
+      user: userId,
+      type: {
+        $in: [
+          'user_joined',
+          'user_left',
+          'invitation_sent',
+          'invitation_accepted',
+          'invitation_declined'
+        ]
+      },
+      _id: { $nin: deletedActivityIds }
+    }).select('_id');
+
+    const allActivities = [...roomWideActivities, ...userSpecificActivities];
+
+    if (allActivities.length === 0) {
+      return res.status(200).json({ message: "No notifications to mark as read" });
+    }
+
+    // Create read status records for all activities
+    const readStatusRecords = allActivities.map(activity => ({
+      user: userId,
+      activity: activity._id,
+      isRead: true
+    }));
+
+    // Use bulk write for better performance
+    await UserActivityRead.bulkWrite(
+      readStatusRecords.map(record => ({
+        updateOne: {
+          filter: { user: record.user, activity: record.activity },
+          update: { isRead: true },
+          upsert: true
+        }
+      }))
+    );
+
+    res.status(200).json({ message: `Marked ${allActivities.length} notifications as read` });
   } catch (error) {
+    console.error('Error marking all notifications as read:', error);
     res.status(400).json({ error: error.message });
   }
 };
@@ -74,17 +237,23 @@ const deleteNotification = async (req, res) => {
     const { id } = req.params;
     const userId = req.user._id;
 
-    // Check if the activity belongs to the user (activities are tied to users)
+    // Verify the activity exists and belongs to the user
     const activity = await Activity.findOne({ _id: id, user: userId });
 
     if (!activity) {
       return res.status(404).json({ error: "Notification not found" });
     }
 
-    // Since activities are shared across the system, we won't actually delete them
-    // but we can mark them as "deleted" for this user by returning success
+    // Create a deleted record for this user and activity
+    await UserActivityDeleted.findOneAndUpdate(
+      { user: userId, activity: id },
+      { deletedAt: new Date() },
+      { upsert: true, new: true }
+    );
+
     res.status(200).json({ message: "Notification deleted successfully" });
   } catch (error) {
+    console.error('Error deleting notification:', error);
     res.status(400).json({ error: error.message });
   }
 };
@@ -94,10 +263,73 @@ const clearAllNotifications = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    // Since activities are shared across the system, we won't actually delete them
-    // but we can mark them as "deleted" for this user by returning success
-    res.status(200).json({ message: "All notifications cleared" });
+    // Get rooms where user is creator or participant
+    const Room = require('../models/roomModel');
+    const userRooms = await Room.find({
+      $or: [
+        { createdBy: userId },
+        { participants: userId }
+      ]
+    }).select('_id');
+
+    const roomIds = userRooms.map(room => room._id);
+
+    // Get activities that are deleted for this user
+    const deletedActivities = await UserActivityDeleted.find({ user: userId }).select('activity');
+    const deletedActivityIds = deletedActivities.map(item => item.activity);
+
+    // Get room-wide activities (not deleted)
+    const roomWideActivities = await Activity.find({
+      room: { $in: roomIds },
+      type: {
+        $in: [
+          'message_sent',
+          'file_created',
+          'file_edited',
+          'file_deleted',
+          'file_renamed',
+          'code_executed',
+          'room_created',
+          'room_updated',
+          'room_deleted'
+        ]
+      },
+      _id: { $nin: deletedActivityIds }
+    }).select('_id');
+
+    // Get user-specific activities (not deleted)
+    const userSpecificActivities = await Activity.find({
+      user: userId,
+      type: {
+        $in: [
+          'user_joined',
+          'user_left',
+          'invitation_sent',
+          'invitation_accepted',
+          'invitation_declined'
+        ]
+      },
+      _id: { $nin: deletedActivityIds }
+    }).select('_id');
+
+    const allActivities = [...roomWideActivities, ...userSpecificActivities];
+
+    if (allActivities.length === 0) {
+      return res.status(200).json({ message: "No notifications to clear" });
+    }
+
+    // Create deleted records for all activities
+    const deletedRecords = allActivities.map(activity => ({
+      user: userId,
+      activity: activity._id,
+      deletedAt: new Date()
+    }));
+
+    await UserActivityDeleted.insertMany(deletedRecords);
+
+    res.status(200).json({ message: `Cleared ${allActivities.length} notifications` });
   } catch (error) {
+    console.error('Error clearing notifications:', error);
     res.status(400).json({ error: error.message });
   }
 };

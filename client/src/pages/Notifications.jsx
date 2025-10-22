@@ -128,7 +128,18 @@ const Notifications = () => {
         if (response.success) {
           // Transform activities to notification format
           const transformedNotifications = response.data.map(transformActivityToNotification);
-          setNotifications(transformedNotifications);
+
+          // Remove duplicates based on activity ID or content
+          const uniqueNotifications = transformedNotifications.filter((notification, index, self) =>
+            index === self.findIndex(n =>
+              n.id === notification.id ||
+              (n.message === notification.message &&
+               n.title === notification.title &&
+               n.type === notification.type)
+            )
+          );
+
+          setNotifications(uniqueNotifications);
         } else {
           setError(response.error || 'Failed to load notifications');
         }
@@ -214,7 +225,18 @@ const Notifications = () => {
         const notificationsResponse = await getNotifications(100, 1);
         if (notificationsResponse.success) {
           const transformedNotifications = notificationsResponse.data.map(transformActivityToNotification);
-          setNotifications(transformedNotifications);
+
+          // Remove duplicates
+          const uniqueNotifications = transformedNotifications.filter((notification, index, self) =>
+            index === self.findIndex(n =>
+              n.id === notification.id ||
+              (n.message === notification.message &&
+               n.title === notification.title &&
+               n.type === notification.type)
+            )
+          );
+
+          setNotifications(uniqueNotifications);
         }
       } else {
         console.error('Failed to accept invitation:', response.error);
@@ -233,7 +255,18 @@ const Notifications = () => {
         const notificationsResponse = await getNotifications(100, 1);
         if (notificationsResponse.success) {
           const transformedNotifications = notificationsResponse.data.map(transformActivityToNotification);
-          setNotifications(transformedNotifications);
+
+          // Remove duplicates
+          const uniqueNotifications = transformedNotifications.filter((notification, index, self) =>
+            index === self.findIndex(n =>
+              n.id === notification.id ||
+              (n.message === notification.message &&
+               n.title === notification.title &&
+               n.type === notification.type)
+            )
+          );
+
+          setNotifications(uniqueNotifications);
         }
       } else {
         console.error('Failed to decline invitation:', response.error);

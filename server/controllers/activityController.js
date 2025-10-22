@@ -1,5 +1,7 @@
 const Activity = require('../models/activityModel');
 const Room = require('../models/roomModel');
+const UserActivityRead = require('../models/userActivityReadModel');
+const UserActivityDeleted = require('../models/userActivityDeletedModel');
 const mongoose = require('mongoose');
 
 // auto-generate activity descriptions
@@ -78,6 +80,13 @@ const createActivity = async (req, res) => {
       metadata: { ...metadata, roomName }
     });
 
+    // Create read status record for the activity owner (initially unread)
+    await UserActivityRead.create({
+      user: req.user._id,
+      activity: activity._id,
+      isRead: false
+    });
+
     // populate user information for the response
     const populatedActivity = await Activity.findById(activity._id)
       .populate('user', 'username email')
@@ -101,30 +110,95 @@ const getRoomActivities = async (req, res) => {
       return res.status(400).json({ error: 'Invalid room ID' });
     }
 
+    // Get activities that are deleted for this user
+    const deletedActivities = await UserActivityDeleted.find({ user: req.user._id }).select('activity');
+    const deletedActivityIds = deletedActivities.map(item => item.activity);
+
     const skip = (page - 1) * limit;
 
-    // Filter activities based on includeTemporary parameter
-    let query = { room: roomId };
+    // Activities that should be shown to all room participants (room-wide activities)
+    const roomWideActivities = await Activity.find({
+      room: roomId,
+      type: {
+        $in: [
+          'message_sent',
+          'file_created',
+          'file_edited',
+          'file_deleted',
+          'file_renamed',
+          'code_executed',
+          'room_created',
+          'room_updated',
+          'room_deleted'
+        ]
+      },
+      _id: { $nin: deletedActivityIds }
+    });
+
+    // Activities that should only be shown to the specific user (user-specific activities)
+    const userSpecificActivities = await Activity.find({
+      user: req.user._id,
+      room: roomId,
+      type: {
+        $in: [
+          'user_joined',
+          'user_left',
+          'invitation_sent',
+          'invitation_accepted',
+          'invitation_declined'
+        ]
+      },
+      _id: { $nin: deletedActivityIds }
+    });
+
+    // Combine both types of activities
+    const allActivities = [...roomWideActivities, ...userSpecificActivities];
+
+    // Sort by creation date (newest first) and apply pagination
+    const sortedActivities = allActivities.sort((a, b) => b.createdAt - a.createdAt);
+    const paginatedActivities = sortedActivities.slice(skip, skip + limit);
+
+    // Filter by temporary activities if needed
+    let filteredActivities = paginatedActivities;
     if (!includeTemporary) {
-      // Only show permanent activities by default
       const permanentTypes = [
         'file_created', 'file_edited', 'file_deleted', 'file_renamed',
         'message_sent', 'code_executed', 'room_created', 'room_updated', 'room_deleted',
         'invitation_sent', 'invitation_accepted', 'invitation_declined'
       ];
-      query.type = { $in: permanentTypes };
+      filteredActivities = paginatedActivities.filter(activity =>
+        permanentTypes.includes(activity.type)
+      );
     }
 
-    const activities = await Activity.find(query)
-      .populate('user', 'username email')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
+    // Populate user information
+    const populatedActivities = await Activity.populate(filteredActivities, [
+      { path: 'user', select: 'username email' }
+    ]);
 
-    const total = await Activity.countDocuments(query);
+    // Get read status for all these activities for the current user
+    const activityIds = populatedActivities.map(activity => activity._id);
+    const readStatuses = await UserActivityRead.find({
+      user: req.user._id,
+      activity: { $in: activityIds }
+    }).select('activity isRead');
+
+    // Create a map of activity ID to read status
+    const readStatusMap = {};
+    readStatuses.forEach(status => {
+      readStatusMap[status.activity.toString()] = status.isRead;
+    });
+
+    // Add read status to activities
+    const activitiesWithReadStatus = populatedActivities.map(activity => ({
+      ...activity.toObject(),
+      isRead: readStatusMap[activity._id.toString()] || false
+    }));
+
+    const total = allActivities.length;
 
     res.status(200).json({
-      activities,
+      activities: activitiesWithReadStatus,
       total,
       page: parseInt(page),
       pages: Math.ceil(total / limit)
@@ -144,6 +218,10 @@ const getAllRoomsActivities = async (req, res) => {
       return res.status(401).json({ error: 'User authentication required' });
     }
 
+    // Get activities that are deleted for this user
+    const deletedActivities = await UserActivityDeleted.find({ user: req.user._id }).select('activity');
+    const deletedActivityIds = deletedActivities.map(item => item.activity);
+
     // get rooms where user is creator or participant
     const userRooms = await Room.find({
       $or: [
@@ -154,26 +232,86 @@ const getAllRoomsActivities = async (req, res) => {
 
     const roomIds = userRooms.map(room => room._id);
 
-    // Filter activities based on includeTemporary parameter
-    let query = { room: { $in: roomIds } };
+    // Get room-wide activities (not deleted)
+    const roomWideActivities = await Activity.find({
+      room: { $in: roomIds },
+      type: {
+        $in: [
+          'message_sent',
+          'file_created',
+          'file_edited',
+          'file_deleted',
+          'file_renamed',
+          'code_executed',
+          'room_created',
+          'room_updated',
+          'room_deleted'
+        ]
+      },
+      _id: { $nin: deletedActivityIds }
+    });
+
+    // Get user-specific activities (not deleted)
+    const userSpecificActivities = await Activity.find({
+      user: req.user._id,
+      type: {
+        $in: [
+          'user_joined',
+          'user_left',
+          'invitation_sent',
+          'invitation_accepted',
+          'invitation_declined'
+        ]
+      },
+      _id: { $nin: deletedActivityIds }
+    });
+
+    // Combine both types of activities
+    const allActivities = [...roomWideActivities, ...userSpecificActivities];
+
+    // Sort by creation date (newest first) and apply pagination
+    const sortedActivities = allActivities.sort((a, b) => b.createdAt - a.createdAt);
+    const paginatedActivities = sortedActivities.slice(0, parseInt(limit));
+
+    // Filter by temporary activities if needed
+    let filteredActivities = paginatedActivities;
     if (!includeTemporary) {
-      // Only show permanent activities by default
       const permanentTypes = [
         'file_created', 'file_edited', 'file_deleted', 'file_renamed',
         'message_sent', 'code_executed', 'room_created', 'room_updated', 'room_deleted',
         'invitation_sent', 'invitation_accepted', 'invitation_declined'
       ];
-      query.type = { $in: permanentTypes };
+      filteredActivities = paginatedActivities.filter(activity =>
+        permanentTypes.includes(activity.type)
+      );
     }
 
-    // get recent activities only for user's rooms
-    const activities = await Activity.find(query)
-      .populate('user', 'username email')
-      .populate('room', 'name')
-      .sort({ createdAt: -1 })
-      .limit(parseInt(limit));
+    // Populate user and room information
+    const populatedActivities = await Activity.populate(filteredActivities, [
+      { path: 'user', select: 'username email' },
+      { path: 'room', select: 'name' }
+    ]);
 
-    res.status(200).json(activities);
+    // Get read status for all these activities for the current user
+    const activityIds = populatedActivities.map(activity => activity._id);
+    const readStatuses = await UserActivityRead.find({
+      user: req.user._id,
+      activity: { $in: activityIds }
+    }).select('activity isRead');
+
+    // Create a map of activity ID to read status
+    const readStatusMap = {};
+    readStatuses.forEach(status => {
+      readStatusMap[status.activity.toString()] = status.isRead;
+    });
+
+    // Add read status to activities
+    const activitiesWithReadStatus = populatedActivities.map(activity => ({
+      ...activity.toObject(),
+      isRead: readStatusMap[activity._id.toString()] || false
+    }));
+
+    res.status(200).json(activitiesWithReadStatus);
   } catch (error) {
     console.error('Error fetching all rooms activities:', error);
     res.status(400).json({ error: error.message });

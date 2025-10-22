@@ -205,7 +205,7 @@ export const transformActivityToNotification = (activity) => {
     title: getNotificationTitle(activity.type, activity.metadata),
     message: formatMessage(activity),
     timestamp: activity.createdAt,
-    isRead: false, // Activities are always unread initially
+    isRead: activity.isRead || false, // Use actual read status from server
     activityData: activity // Keep original activity data for reference
   };
 };

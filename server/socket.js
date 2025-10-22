@@ -57,27 +57,39 @@ const socketHandler = (io) => {
                         console.error('Error updating room participants in database:', dbError);
                     }
 
-                    // Create activity for user joining room
+                    // Create activity for user joining room (check for duplicates)
                     try {
                         const room = await Room.findById(roomId).select('name');
                         const roomName = room?.name || 'Unknown Room';
 
-                        const joinActivity = await Activity.create({
+                        // Check if a join activity for this user in this room already exists today
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        const existingJoinActivity = await Activity.findOne({
                             room: roomId,
                             user: user._id,
                             type: 'user_joined',
-                            description: `${user.username || 'User'} joined room "${roomName}"`,
-                            metadata: {
-                                roomName,
-                                action: 'user_joined'
-                            }
+                            createdAt: { $gte: today }
                         });
 
-                        // Emit socket event for new activity (global for dashboard)
-                        const populatedJoinActivity = await Activity.findById(joinActivity._id)
-                            .populate('user', 'username email')
-                            .populate('room', 'name');
-                        io.emit('activityCreated', populatedJoinActivity);
+                        if (!existingJoinActivity) {
+                            const joinActivity = await Activity.create({
+                                room: roomId,
+                                user: user._id,
+                                type: 'user_joined',
+                                description: `${user.username || 'User'} joined room "${roomName}"`,
+                                metadata: {
+                                    roomName,
+                                    action: 'user_joined'
+                                }
+                            });
+
+                            // Emit socket event for new activity (global for dashboard)
+                            const populatedJoinActivity = await Activity.findById(joinActivity._id)
+                                .populate('user', 'username email')
+                                .populate('room', 'name');
+                            io.emit('activityCreated', populatedJoinActivity);
+                        }
                     } catch (activityError) {
                         console.error('Error creating join room activity:', activityError);
                     }
@@ -199,26 +211,41 @@ const socketHandler = (io) => {
                   }
                 };
 
-                // Create activity for message sent
-                const messageActivity = await Activity.create({
-                    room: roomId,
-                    user: sender._id,
-                    type: 'message_sent',
-                    description: generateActivityDescription('message_sent', {
-                        message: message,
-                        roomName: room?.name || 'Unknown Room'
-                    }, sender.username || 'User'),
-                    metadata: {
-                        message: message,
-                        roomName: room?.name || 'Unknown Room'
-                    }
-                });
+                // Create activity for message sent (check for duplicates)
+                try {
+                    // Check if a message activity for this exact message already exists
+                    const existingMessageActivity = await Activity.findOne({
+                        room: roomId,
+                        user: sender._id,
+                        type: 'message_sent',
+                        'metadata.message': message,
+                        createdAt: { $gte: new Date(Date.now() - 5000) } // Within last 5 seconds
+                    });
 
-                // Emit socket event for new activity (global for dashboard)
-                const populatedMessageActivity = await Activity.findById(messageActivity._id)
-                    .populate('user', 'username email')
-                    .populate('room', 'name');
-                io.emit('activityCreated', populatedMessageActivity);
+                    if (!existingMessageActivity) {
+                        const messageActivity = await Activity.create({
+                            room: roomId,
+                            user: sender._id,
+                            type: 'message_sent',
+                            description: generateActivityDescription('message_sent', {
+                                message: message,
+                                roomName: room?.name || 'Unknown Room'
+                            }, sender.username || 'User'),
+                            metadata: {
+                                message: message,
+                                roomName: room?.name || 'Unknown Room'
+                            }
+                        });
+
+                        // Emit socket event for new activity (global for dashboard)
+                        const populatedMessageActivity = await Activity.findById(messageActivity._id)
+                            .populate('user', 'username email')
+                            .populate('room', 'name');
+                        io.emit('activityCreated', populatedMessageActivity);
+                    }
+                } catch (activityError) {
+                    console.error('Error creating message activity:', activityError);
+                }
 
                 const populatedChat = await newChat.populate('sender', 'username email _id');
                 io.to(roomId).emit("receiveMessage", populatedChat);
@@ -238,30 +265,41 @@ const socketHandler = (io) => {
                     try {
                         await File.findByIdAndUpdate(fileId, { content });
 
-                        // Create activity for file edit after saving
+                        // Create activity for file edit after saving (check for duplicates)
                         try {
                             const file = await File.findById(fileId).populate('uploadedBy', 'username');
                             const room = await Room.findById(roomId).select('name');
                             const roomName = room?.name || 'Unknown Room';
 
                             if (file) {
-                                const fileEditActivity = await Activity.create({
+                                // Check if a file edit activity for this file already exists in the last minute
+                                const oneMinuteAgo = new Date(Date.now() - 60000);
+                                const existingFileEditActivity = await Activity.findOne({
                                     room: roomId,
-                                    user: userId || (socket.user && socket.user._id) || (file.uploadedBy && file.uploadedBy._id) || null,
+                                    'metadata.fileId': fileId,
                                     type: 'file_edited',
-                                    description: `${(file.uploadedBy && file.uploadedBy.username) || 'User'} edited file in ${roomName}`,
-                                    metadata: {
-                                        filename: file.filename,
-                                        roomName,
-                                        fileId: file._id
-                                    }
+                                    createdAt: { $gte: oneMinuteAgo }
                                 });
 
-                                // Emit socket event for new activity (global for dashboard)
-                                const populatedFileEditActivity = await Activity.findById(fileEditActivity._id)
-                                    .populate('user', 'username email')
-                                    .populate('room', 'name');
-                                io.emit('activityCreated', populatedFileEditActivity);
+                                if (!existingFileEditActivity) {
+                                    const fileEditActivity = await Activity.create({
+                                        room: roomId,
+                                        user: userId || (socket.user && socket.user._id) || (file.uploadedBy && file.uploadedBy._id) || null,
+                                        type: 'file_edited',
+                                        description: `${(file.uploadedBy && file.uploadedBy.username) || 'User'} edited file in ${roomName}`,
+                                        metadata: {
+                                            filename: file.filename,
+                                            roomName,
+                                            fileId: file._id
+                                        }
+                                    });
+
+                                    // Emit socket event for new activity (global for dashboard)
+                                    const populatedFileEditActivity = await Activity.findById(fileEditActivity._id)
+                                        .populate('user', 'username email')
+                                        .populate('room', 'name');
+                                    io.emit('activityCreated', populatedFileEditActivity);
+                                }
                             }
                         } catch (activityError) {
                             console.error('Error creating file edit activity:', activityError);
@@ -282,7 +320,7 @@ const socketHandler = (io) => {
                 // Broadcast file deletion to other clients
                 socket.to(roomId).emit('fileDeleted', { fileId, fileName });
 
-                // Create activity for file deletion
+                // Create activity for file deletion (check for duplicates)
                 try {
                     const room = await Room.findById(roomId).select('name');
                     const roomName = room?.name || 'Unknown Room';
@@ -290,23 +328,34 @@ const socketHandler = (io) => {
                     // Get user info from socket
                     const user = socket.user || { username: 'User', _id: null };
 
-                    const deleteActivity = await Activity.create({
+                    // Check if a file deletion activity for this file already exists in the last minute
+                    const oneMinuteAgo = new Date(Date.now() - 60000);
+                    const existingDeleteActivity = await Activity.findOne({
                         room: roomId,
-                        user: user._id,
+                        'metadata.fileId': fileId,
                         type: 'file_deleted',
-                        description: `${user.username || 'User'} deleted file "${fileName}" in ${roomName}`,
-                        metadata: {
-                            filename: fileName,
-                            roomName,
-                            fileId: fileId
-                        }
+                        createdAt: { $gte: oneMinuteAgo }
                     });
 
-                    // Emit socket event for new activity (global for dashboard)
-                    const populatedDeleteActivity = await Activity.findById(deleteActivity._id)
-                        .populate('user', 'username email')
-                        .populate('room', 'name');
-                    io.emit('activityCreated', populatedDeleteActivity);
+                    if (!existingDeleteActivity) {
+                        const deleteActivity = await Activity.create({
+                            room: roomId,
+                            user: user._id,
+                            type: 'file_deleted',
+                            description: `${user.username || 'User'} deleted file "${fileName}" in ${roomName}`,
+                            metadata: {
+                                filename: fileName,
+                                roomName,
+                                fileId: fileId
+                            }
+                        });
+
+                        // Emit socket event for new activity (global for dashboard)
+                        const populatedDeleteActivity = await Activity.findById(deleteActivity._id)
+                            .populate('user', 'username email')
+                            .populate('room', 'name');
+                        io.emit('activityCreated', populatedDeleteActivity);
+                    }
                 } catch (activityError) {
                     console.error('Error creating file deletion activity:', activityError);
                 }
@@ -324,7 +373,7 @@ const socketHandler = (io) => {
                 // Broadcast file rename to other clients
                 socket.to(roomId).emit('fileRenamed', { fileId, oldName, newName });
 
-                // Create activity for file renaming
+                // Create activity for file renaming (check for duplicates)
                 try {
                     const room = await Room.findById(roomId).select('name');
                     const roomName = room?.name || 'Unknown Room';
@@ -332,24 +381,35 @@ const socketHandler = (io) => {
                     // Get user info from socket
                     const user = socket.user || { username: 'User', _id: null };
 
-                    const renameActivity = await Activity.create({
+                    // Check if a file rename activity for this file already exists in the last minute
+                    const oneMinuteAgo = new Date(Date.now() - 60000);
+                    const existingRenameActivity = await Activity.findOne({
                         room: roomId,
-                        user: user._id,
+                        'metadata.fileId': fileId,
                         type: 'file_renamed',
-                        description: `${user.username || 'User'} renamed file "${oldName}" to "${newName}" in ${roomName}`,
-                        metadata: {
-                            filename: newName,
-                            oldName: oldName,
-                            roomName,
-                            fileId: fileId
-                        }
+                        createdAt: { $gte: oneMinuteAgo }
                     });
 
-                    // Emit socket event for new activity (global for dashboard)
-                    const populatedRenameActivity = await Activity.findById(renameActivity._id)
-                        .populate('user', 'username email')
-                        .populate('room', 'name');
-                    io.emit('activityCreated', populatedRenameActivity);
+                    if (!existingRenameActivity) {
+                        const renameActivity = await Activity.create({
+                            room: roomId,
+                            user: user._id,
+                            type: 'file_renamed',
+                            description: `${user.username || 'User'} renamed file "${oldName}" to "${newName}" in ${roomName}`,
+                            metadata: {
+                                filename: newName,
+                                oldName: oldName,
+                                roomName,
+                                fileId: fileId
+                            }
+                        });
+
+                        // Emit socket event for new activity (global for dashboard)
+                        const populatedRenameActivity = await Activity.findById(renameActivity._id)
+                            .populate('user', 'username email')
+                            .populate('room', 'name');
+                        io.emit('activityCreated', populatedRenameActivity);
+                    }
                 } catch (activityError) {
                     console.error('Error creating file rename activity:', activityError);
                 }
@@ -437,30 +497,41 @@ const socketHandler = (io) => {
                     timestamp: new Date()
                 });
 
-                // Create activity for code execution
+                // Create activity for code execution (check for duplicates)
                 try {
                     const room = await Room.findById(roomId).select('name');
                     const roomName = room?.name || 'Unknown Room';
 
-                    const codeActivity = await Activity.create({
+                    // Check if a code execution activity for this file already exists in the last minute
+                    const oneMinuteAgo = new Date(Date.now() - 60000);
+                    const existingCodeActivity = await Activity.findOne({
                         room: roomId,
-                        user: userInfo._id,
+                        'metadata.filename': fileName,
                         type: 'code_executed',
-                        description: `${userInfo.username || 'User'} executed code "${fileName || 'script'}" in ${roomName}`,
-                        metadata: {
-                            filename: fileName,
-                            language: language,
-                            roomName,
-                            executionTime: null, // Will be updated when execution completes
-                            exitCode: null // Will be updated when execution completes
-                        }
+                        createdAt: { $gte: oneMinuteAgo }
                     });
 
-                    // Emit socket event for new activity (global for dashboard)
-                    const populatedCodeActivity = await Activity.findById(codeActivity._id)
-                        .populate('user', 'username email')
-                        .populate('room', 'name');
-                    io.emit('activityCreated', populatedCodeActivity);
+                    if (!existingCodeActivity) {
+                        const codeActivity = await Activity.create({
+                            room: roomId,
+                            user: userInfo._id,
+                            type: 'code_executed',
+                            description: `${userInfo.username || 'User'} executed code "${fileName || 'script'}" in ${roomName}`,
+                            metadata: {
+                                filename: fileName,
+                                language: language,
+                                roomName,
+                                executionTime: null, // Will be updated when execution completes
+                                exitCode: null // Will be updated when execution completes
+                            }
+                        });
+
+                        // Emit socket event for new activity (global for dashboard)
+                        const populatedCodeActivity = await Activity.findById(codeActivity._id)
+                            .populate('user', 'username email')
+                            .populate('room', 'name');
+                        io.emit('activityCreated', populatedCodeActivity);
+                    }
                 } catch (activityError) {
                     console.error('Error creating code execution activity:', activityError);
                 }
