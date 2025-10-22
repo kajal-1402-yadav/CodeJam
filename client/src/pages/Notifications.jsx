@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Bell, Search, Check, X, MoreVertical, Users, FileText, MessageSquare, Settings, UserPlus, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { Bell, Search, Check, X, Users, FileText, MessageSquare, Settings, UserPlus, CheckCircle, XCircle, Loader2 } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import {
   getNotifications,

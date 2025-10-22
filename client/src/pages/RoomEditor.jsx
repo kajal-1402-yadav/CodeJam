@@ -1103,15 +1103,6 @@ const clearStorage = (key) => {
         onDeleteMessage={handleDeleteMessage}
         currentUser={user}
       />
-
-      {/* Collaborator sidebar - commented out since component doesn't exist */}
-      {/* <CollaboratorSidebar
-        isOpen={isCollaboratorOpen}
-        onToggle={() => setIsCollaboratorOpen(v => !v)}
-        currentUser={user}
-        currentRoom={room}
-        chatIsOpen={isChatOpen}
-      /> */}
     </div>
   );
 }

@@ -64,6 +64,7 @@ const sendInvitation = async (req, res) => {
             type: 'invitation_sent',
             user: invitedBy,
             room: roomId,
+            description: `${req.user.username} invited ${invitedUser.username} to join ${room.name}`,
             metadata: {
                 invitedUserEmail: invitedUser.email,
                 invitedUserName: invitedUser.username,

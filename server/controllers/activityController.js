@@ -1,4 +1,5 @@
 const Activity = require('../models/activityModel');
+const Room = require('../models/roomModel');
 const mongoose = require('mongoose');
 
 // auto-generate activity descriptions
@@ -63,7 +64,6 @@ const createActivity = async (req, res) => {
     }
 
     // Get room name for metadata
-    const Room = require('../models/roomModel');
     const room = await Room.findById(roomId).select('name');
     const roomName = room?.name || 'Unknown Room';
 
@@ -145,7 +145,6 @@ const getAllRoomsActivities = async (req, res) => {
     }
 
     // get rooms where user is creator or participant
-    const Room = require('../models/roomModel');
     const userRooms = await Room.find({
       $or: [
         { createdBy: req.user._id },

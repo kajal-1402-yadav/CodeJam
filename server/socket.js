@@ -45,7 +45,6 @@ const socketHandler = (io) => {
                 }
                 if (user && user.email) {
                     roomUsers[roomId].add(user.email);
-                    console.log(`User ${user.email} (${socket.id}) joined room ${roomId}`);
 
                     // Add user to room's participants in database
                     try {
@@ -53,7 +52,6 @@ const socketHandler = (io) => {
                         if (room && !room.participants.includes(user._id)) {
                             room.participants.push(user._id);
                             await room.save();
-                            console.log(`Added user ${user.email} to room ${roomId} participants in database`);
                         }
                     } catch (dbError) {
                         console.error('Error updating room participants in database:', dbError);
@@ -80,8 +78,6 @@ const socketHandler = (io) => {
                             .populate('user', 'username email')
                             .populate('room', 'name');
                         io.emit('activityCreated', populatedJoinActivity);
-
-                        console.log(`Created activity for user ${user.email} joining room ${roomId}`);
                     } catch (activityError) {
                         console.error('Error creating join room activity:', activityError);
                     }
@@ -115,11 +111,9 @@ const socketHandler = (io) => {
                 try {
                     const room = await Room.findById(roomId).populate('createdBy participants', 'name email _id username');
                     const wasParticipant = room && room.participants && room.participants.some(p => p._id.toString() === user._id.toString());
-                    console.log(`User ${user.email} joining room ${roomId}, was participant: ${wasParticipant}`);
 
                     // Always emit userJoinedRoom event when user joins, even if they were already a participant
                     // This ensures the client receives confirmation that the join was processed
-                    console.log(`Emitting userJoinedRoom event for room ${roomId}`);
                     io.emit("userJoinedRoom", {
                       roomId: roomId,
                       room: room
@@ -128,7 +122,7 @@ const socketHandler = (io) => {
                     console.error('Error checking participant status:', error);
                 }
 
-                // Note: user_joined activities are not stored in database (ephemeral only)
+                // Note: user_joined activities are stored in database for tracking
             } catch (error) {
                 console.error('Error in joinRoom:', error);
             }
@@ -140,7 +134,6 @@ const socketHandler = (io) => {
                 roomUsers[roomId].delete(user.email);
             }
             socket.leave(roomId);
-            console.log(` ${user.email} left room ${roomId}`);
 
             // Don't remove user from room's participants in database when navigating away
             // Only remove from in-memory roomUsers for real-time updates
@@ -161,7 +154,6 @@ const socketHandler = (io) => {
                         action: 'user_left'
                     }
                 });
-                console.log(`Created activity for user ${user.email} leaving room ${roomId}`);
             } catch (activityError) {
                 console.error('Error creating leave room activity:', activityError);
             }
@@ -178,14 +170,13 @@ const socketHandler = (io) => {
               participants: Array.from(roomUsers[roomId]).length
             });
 
-            // Note: user_left activities are not stored in database (ephemeral only)
+            // Note: user_left activities are stored in database for tracking
         });
 
         //handle chat msg
         socket.on("sendMessage", async ({ roomId, message, sender }) => {
             try {
                 if (!sender || !sender._id) {
-                    console.error("SendMessage error: Sender ID is missing");
                     return;
                 }
                 const newChat = await Chat.create({
@@ -195,7 +186,6 @@ const socketHandler = (io) => {
                 });
 
                 // Get room name for activity
-                const Room = require('./models/roomModel');
                 const room = await Room.findById(roomId).select('name');
 
                 // Generate enhanced description
@@ -272,14 +262,10 @@ const socketHandler = (io) => {
                                     .populate('user', 'username email')
                                     .populate('room', 'name');
                                 io.emit('activityCreated', populatedFileEditActivity);
-
-                                console.log(`Created activity for file edit: ${file.name} in room ${roomId}`);
                             }
                         } catch (activityError) {
                             console.error('Error creating file edit activity:', activityError);
                         }
-
-                        console.log(`File ${fileId} saved to DB.`);
                     } catch (error) {
                         console.error(`Error saving file ${fileId}:`, error);
                     }
@@ -321,15 +307,12 @@ const socketHandler = (io) => {
                         .populate('user', 'username email')
                         .populate('room', 'name');
                     io.emit('activityCreated', populatedDeleteActivity);
-
-                    console.log(`Created activity for file deletion: ${fileName} in room ${roomId}`);
                 } catch (activityError) {
                     console.error('Error creating file deletion activity:', activityError);
                 }
 
                 // Delete file from database
                 await File.findByIdAndDelete(fileId);
-                console.log(`File ${fileId} deleted from database`);
             } catch (error) {
                 console.error('Error deleting file:', error);
             }
@@ -367,15 +350,12 @@ const socketHandler = (io) => {
                         .populate('user', 'username email')
                         .populate('room', 'name');
                     io.emit('activityCreated', populatedRenameActivity);
-
-                    console.log(`Created activity for file rename: ${oldName} -> ${newName} in room ${roomId}`);
                 } catch (activityError) {
                     console.error('Error creating file rename activity:', activityError);
                 }
 
                 // Update file name in database
                 await File.findByIdAndUpdate(fileId, { name: newName });
-                console.log(`File ${fileId} renamed from "${oldName}" to "${newName}" in database`);
             } catch (error) {
                 console.error('Error renaming file:', error);
             }
@@ -388,13 +368,11 @@ const socketHandler = (io) => {
                 const message = await Chat.findById(updatedMessage.messageId);
 
                 if (!message) {
-                    console.error('Message not found:', updatedMessage.messageId);
                     return;
                 }
 
                 // Check if the current user is the sender of the message
                 if (message.sender.toString() !== updatedMessage.userId.toString()) {
-                    console.error('Unauthorized message update attempt');
                     return;
                 }
 
@@ -423,13 +401,11 @@ const socketHandler = (io) => {
                 const message = await Chat.findById(deleteData.messageId);
 
                 if (!message) {
-                    console.error('Message not found:', deleteData.messageId);
                     return;
                 }
 
                 // Check if the current user is the sender of the message
                 if (message.sender.toString() !== deleteData.userId.toString()) {
-                    console.error('Unauthorized message deletion attempt');
                     return;
                 }
 
@@ -485,8 +461,6 @@ const socketHandler = (io) => {
                         .populate('user', 'username email')
                         .populate('room', 'name');
                     io.emit('activityCreated', populatedCodeActivity);
-
-                    console.log(`Created activity for code execution: ${fileName} in room ${roomId}`);
                 } catch (activityError) {
                     console.error('Error creating code execution activity:', activityError);
                 }
@@ -533,7 +507,6 @@ const socketHandler = (io) => {
 
         // Disconnect
         socket.on("disconnect", () => {
-            console.log("Client disconnected : ", socket.id);
 
             // Note: We can't reliably determine which specific user disconnected
             // without maintaining socket.id -> user mappings. For now, we'll

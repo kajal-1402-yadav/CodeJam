@@ -1,6 +1,7 @@
 const User = require("../models/userModel");
 const mongoose = require("mongoose");
 const jwt = require("jsonwebtoken");
+const bcrypt = require("bcrypt");
 const validator = require("validator");
 
 
@@ -52,7 +53,7 @@ const loginUser = async (req, res) => {
             return res.status(400).json({ error: 'Incorrect credentials!' })
         }
 
-        const match = await require('bcrypt').compare(password, user.password)
+        const match = await bcrypt.compare(password, user.password)
         if (!match) {
             return res.status(400).json({ error: 'Incorrect password' })
         }
@@ -65,7 +66,6 @@ const loginUser = async (req, res) => {
     }
 }
 
-
 // get a specific user
 const getUserById = async (req, res) => {
     try {
@@ -77,7 +77,6 @@ const getUserById = async (req, res) => {
         res.status(400).json({ error: error.message });
     }
 }
-
 
 
 const updateUser = async (req, res) => {
@@ -99,7 +98,7 @@ const updateUser = async (req, res) => {
                 return res.status(400).json({ error: 'New password is required' });
             }
 
-            const isMatch = await require('bcrypt').compare(currentPassword, user.password);
+            const isMatch = await bcrypt.compare(currentPassword, user.password);
             if (!isMatch) {
                 return res.status(400).json({ error: 'Current password is incorrect' });
             }
@@ -136,8 +135,8 @@ const updateUser = async (req, res) => {
         if (username) updateData.username = username;
         if (email) updateData.email = email;
         if (newPassword) {
-            const salt = await require('bcrypt').genSalt(10);
-            updateData.password = await require('bcrypt').hash(newPassword, salt);
+            const salt = await bcrypt.genSalt(10);
+            updateData.password = await bcrypt.hash(newPassword, salt);
         }
 
         const updatedUser = await User.findByIdAndUpdate(

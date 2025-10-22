@@ -347,7 +347,6 @@ const Dashboard = () => {
     if (!newRoomName.trim()) return;
 
     setIsCreating(true);
-    console.log('Creating room:', newRoomName.trim());
 
     const result = await createRoom({
       name: newRoomName.trim(),
@@ -355,12 +354,10 @@ const Dashboard = () => {
     });
 
     if (result.success) {
-      console.log('Room created successfully:', result.data);
       setRooms(prev => {
         // Check if room already exists to prevent duplicates
         const exists = prev.some(room => room._id === result.data._id);
         if (exists) {
-          console.log('Room already exists in state, not adding duplicate');
           return prev;
         }
         return [result.data, ...prev];
@@ -376,7 +373,6 @@ const Dashboard = () => {
   };
 
   const handleJoinRoom = (room) => {
-    console.log("Joining room:", room.name);
     // Navigate to room or implement join logic
     navigate(`/room/${room._id}`);
   };
@@ -421,26 +417,19 @@ const Dashboard = () => {
         // Create a promise that resolves when userJoinedRoom event is received
         const joinPromise = new Promise((resolve, reject) => {
           const handleUserJoinedRoom = (data) => {
-            console.log('Received userJoinedRoom event:', data);
             const { roomId, room } = data;
-            console.log('Room ID from event:', roomId, 'Expected room ID:', roomData._id);
             // If this room isn't in our current rooms list, add it
             if (roomId === roomData._id) {
-              console.log('Room ID matches, adding room to list');
               setRooms(prev => {
                 const roomExists = prev.some(r => String(r._id) === String(roomId));
                 if (!roomExists) {
-                  console.log('Room not in list, adding it');
                   return [room, ...prev];
                 } else {
-                  console.log('Room already in list');
                   return prev;
                 }
               });
               socket.off('userJoinedRoom', handleUserJoinedRoom);
               resolve(room);
-            } else {
-              console.log('Room ID does not match');
             }
           };
 
@@ -482,7 +471,6 @@ const Dashboard = () => {
   };
 
   const handleEditRoom = (room) => {
-    console.log("Editing room:", room.name);
     // For now, use prompt as placeholder - should be replaced with modal
     const newName = prompt("Enter new room name:", room.name);
     if (newName && newName.trim() !== room.name) {

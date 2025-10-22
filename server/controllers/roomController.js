@@ -46,7 +46,6 @@ const createRoom = async (req, res) => {
         });
 
         // Create activity for room creation
-        // const Activity = require('../models/activityModel'); // Already declared at top
 
         // Generate enhanced description
         const generateActivityDescription = (type, metadata, userName) => {
@@ -153,7 +152,6 @@ const updateRoom = async (req, res) => {
         ).populate('createdBy participants', 'name email');
 
         // Create activity for room update
-        // const Activity = require('../models/activityModel'); // Already declared at top
         const updateActivity = await Activity.create({
             room: req.params.roomId,
             user: req.user._id,
@@ -184,13 +182,8 @@ const updateRoom = async (req, res) => {
 const deleteRoom = async (req, res) => {
   try {
     const { roomId } = req.params;
-    console.log('Delete room request for roomId:', roomId);
-    console.log('roomId type:', typeof roomId);
-    console.log('roomId length:', roomId.length);
-    console.log('Is valid ObjectId:', mongoose.Types.ObjectId.isValid(roomId));
 
     if (!mongoose.Types.ObjectId.isValid(roomId)) {
-      console.log('Room ID validation failed for:', roomId);
       return res.status(400).json({ error: 'Invalid room ID', providedId: roomId });
     }
 
@@ -209,7 +202,6 @@ const deleteRoom = async (req, res) => {
     const roomName = room.name;
 
     // Create activity for room deletion before deleting the room
-    // const Activity = require('../models/activityModel'); // Already declared at top
     const deleteActivity = await Activity.create({
       room: roomId,
       user: req.user._id,
@@ -244,15 +236,11 @@ const deleteRoom = async (req, res) => {
     // Emit socket event to notify all clients about room deletion
     const io = req.io;
     if (io) {
-      console.log(`Emitting roomDeleted event for room: ${roomName} (${roomId})`);
       io.emit('roomDeleted', { roomId: roomId, roomName });
-    } else {
-      console.log('Socket.io instance not available for room deletion event');
     }
 
     res.status(200).json({ message: 'Room deleted successfully' });
   } catch (error) {
-    console.error('Error deleting room:', error);
     res.status(400).json({ error: error.message });
   }
 };
