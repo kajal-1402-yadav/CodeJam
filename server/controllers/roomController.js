@@ -151,6 +151,27 @@ const updateRoom = async (req, res) => {
             { new: true, runValidators: true }
         ).populate('createdBy participants', 'name email');
 
+        // If the room name was updated, also update the root folder name
+        if (req.body.name) {
+            await Folder.findOneAndUpdate(
+                { 
+                    room: req.params.roomId, 
+                    parent: null // Only update the root folder
+                },
+                { name: req.body.name },
+                { new: true }
+            );
+
+            // Emit socket event to notify clients about the folder name update
+            if (req.io) {
+                req.io.to(`room:${req.params.roomId}`).emit('folderUpdated', {
+                    roomId: req.params.roomId,
+                    folderId: null, // Indicates root folder
+                    name: req.body.name
+                });
+            }
+        }
+
         // Create activity for room update
         const updateActivity = await Activity.create({
             room: req.params.roomId,
@@ -159,7 +180,8 @@ const updateRoom = async (req, res) => {
             description: `${req.user.username} updated room settings`,
             metadata: {
                 roomName: updatedRoom.name,
-                updateDetails: 'room settings'
+                updateDetails: 'room settings',
+                nameChanged: !!req.body.name
             }
         });
 

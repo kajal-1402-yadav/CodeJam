@@ -316,34 +316,32 @@ const clearStorage = (key) => {
   const handleFileDeleted = useCallback(({ fileId }) => {
     setFiles(prev => prev.filter(f => f._id !== fileId));
     
-    // Remove from open tabs
+    // Remove from open tabs and update active file if needed
     setOpenTabs(prevTabs => {
       const newTabs = prevTabs.filter(id => id !== fileId);
       
-      // If the deleted file was active, switch to another tab
-      setActiveFileId(currentActiveId => {
-        if (currentActiveId === fileId) {
-          if (newTabs.length > 0) {
-            const nextTabId = newTabs[0];
-            // Get the next file's content from files state
-            setFiles(currentFiles => {
-              const nextFile = currentFiles.find(f => f._id === nextTabId);
-              if (nextFile) {
-                setActiveContent(nextFile.content || "");
-              }
-              return currentFiles;
-            });
-            return nextTabId;
-          } else {
-            setActiveContent("");
-            return null;
-          }
-        }
-        return currentActiveId;
-      });
+      // If the deleted file was active, update the active file
+      if (activeFileId === fileId) {
+        setActiveFileId(newTabs[0] || null);
+        setActiveContent('');
+      }
       
       return newTabs;
     });
+  }, [activeFileId]);
+  
+  // Handle folder updates (including root folder)
+  const handleFolderUpdated = useCallback(({ folderId, name, roomId: updatedRoomId }) => {
+    setFolders(prevFolders => 
+      prevFolders.map(folder => {
+        // If folderId is null, it's the root folder (identified by room ID and null parent)
+        if ((folderId === null && folder.room === updatedRoomId && !folder.parent) || 
+            folder._id === folderId) {
+          return { ...folder, name };
+        }
+        return folder;
+      })
+    );
   }, []);
 
   // Register socket event listeners
@@ -353,6 +351,7 @@ const clearStorage = (key) => {
     socket.on("fileUpdated", handleFileUpdated);
     socket.on("fileRenamed", handleFileRenamed);
     socket.on("fileDeleted", handleFileDeleted);
+    socket.on("folderUpdated", handleFolderUpdated);
 
     // Show participants list updates
     socket.on("roomUsers", (users) => {
@@ -363,6 +362,7 @@ const clearStorage = (key) => {
       socket.off("fileUpdated", handleFileUpdated);
       socket.off("fileRenamed", handleFileRenamed);
       socket.off("fileDeleted", handleFileDeleted);
+      socket.off("folderUpdated", handleFolderUpdated);
       socket.off("roomUsers");
     };
   }, [socket, handleFileUpdated, handleFileRenamed, handleFileDeleted]);
