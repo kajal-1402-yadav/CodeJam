@@ -16,39 +16,48 @@ import {
 
 const NotificationItem = ({ notification, onMarkRead, onDelete, onAcceptInvitation, onDeclineInvitation, onInvitationClick }) => {
   const getNotificationIcon = (type) => {
+    // Check if it's an invitation activity
+    if (type === 'invitation') {
+      return <UserPlus className="text-orange-400" size={20} />;
+    }
+
     switch (type) {
       case 'room': return <Users className="text-blue-400" size={20} />;
       case 'file': return <FileText className="text-green-400" size={20} />;
       case 'message': return <MessageSquare className="text-purple-400" size={20} />;
       case 'system': return <Settings className="text-gray-400" size={20} />;
-      case 'invitation': return <UserPlus className="text-orange-400" size={20} />;
       default: return <Bell className="text-[#A78BFA]" size={20} />;
     }
   };
 
   const getNotificationColor = (type) => {
+    // Check if it's an invitation activity
+    if (type === 'invitation') {
+      return 'border-l-orange-400';
+    }
+
     switch (type) {
       case 'room': return 'border-l-blue-400';
       case 'file': return 'border-l-green-400';
       case 'message': return 'border-l-purple-400';
       case 'system': return 'border-l-gray-400';
-      case 'invitation': return 'border-l-orange-400';
       default: return 'border-l-[#A78BFA]';
     }
   };
 
   const handleInvitationClick = () => {
     const activityType = notification.activityData?.type;
-    // Only handle click for pending invitations
-    if (notification.type === 'invitation' && 
-        activityType === 'invitation_sent') {
+    // Handle click for any invitation-related activities that have invitationId
+    if (notification.type === 'invitation' &&
+        activityType?.includes('invitation') &&
+        notification.activityData?.metadata?.invitationId) {
       onInvitationClick(notification);
     }
   };
 
   return (
     <div 
-      className={`bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-4 shadow-md hover:border-[#A78BFA]/50 transition-all duration-300 group border-l-4 transform hover:-translate-y-1 ${getNotificationColor(notification.type)} ${!notification.isRead ? 'bg-[#A78BFA]/5 border-[#A78BFA]/30' : ''} ${notification.type === 'invitation' && notification.activityData?.type === 'invitation_sent' ? 'cursor-pointer' : ''}`}
+      className={`bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-4 shadow-md hover:border-[#A78BFA]/50 transition-all duration-300 group border-l-4 transform hover:-translate-y-1 ${getNotificationColor(notification.type)} ${!notification.isRead ? 'bg-[#A78BFA]/5 border-[#A78BFA]/30' : ''} ${notification.type === 'invitation' && notification.activityData?.metadata?.invitationId ? 'cursor-pointer' : 'cursor-default'}`}
       onClick={handleInvitationClick}
     >
       <div className="flex items-start gap-4">
@@ -67,13 +76,15 @@ const NotificationItem = ({ notification, onMarkRead, onDelete, onAcceptInvitati
                 {!notification.isRead && (
                   <span className="w-2 h-2 bg-[#A78BFA] rounded-full"></span>
                 )}
-                {notification.type === 'invitation' && (
+                {notification.type === 'invitation' && notification.activityData?.metadata?.invitationId && (
                   <span className={`text-xs font-medium ${
                     notification.activityData?.type === 'invitation_accepted'
                       ? 'text-green-400'
                       : notification.activityData?.type === 'invitation_declined'
                         ? 'text-red-400'
-                        : 'text-orange-400'
+                        : notification.activityData?.type === 'invitation_sent'
+                          ? 'text-orange-400'
+                          : 'text-gray-400'
                   }`}>
                     {notification.activityData?.type === 'invitation_accepted'
                       ? 'Accepted'
@@ -124,7 +135,7 @@ const Notifications = () => {
     { value: "room", label: "Rooms" },
     { value: "file", label: "Files" },
     { value: "message", label: "Messages" },
-    { value: "invitation", label: "Invites" },
+    { value: "invitation", label: "Invites (Actionable)" },
     { value: "system", label: "System" }
   ];
 
@@ -177,7 +188,9 @@ const Notifications = () => {
   const filteredNotifications = notifications.filter(notification => {
     const matchesSearch = notification.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          notification.message.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesType = filterType === "All" || notification.type === filterType;
+    const matchesType = filterType === "All" ||
+                       (filterType === "invitation" && notification.activityData?.type === 'invitation_sent') ||
+                       notification.type === filterType;
     return matchesSearch && matchesType;
   });
 
@@ -365,8 +378,11 @@ const Notifications = () => {
 
   const handleInvitationClick = async (notification) => {
     console.log('Invitation click - notification:', notification);
-    
-    if (notification.type !== 'invitation') {
+
+    // Handle clicks for any invitation-related activities that have invitationId
+    if (notification.type !== 'invitation' ||
+        !notification.activityData?.type?.includes('invitation') ||
+        !notification.activityData?.metadata?.invitationId) {
       markNotificationAsRead(notification.id);
       return;
     }
@@ -375,72 +391,54 @@ const Notifications = () => {
     markNotificationAsRead(notification.id);
 
     // Get the invitation ID from the activity metadata
-    const invitationId = notification.activityData?.metadata?.invitationId || notification.activityData?._id;
+    const invitationId = notification.activityData.metadata.invitationId;
     console.log('Invitation ID from metadata:', invitationId);
-    
+
     if (!invitationId) {
       console.error('No invitation ID found in notification:', notification);
       alert('Invalid invitation data. Please refresh the page and try again.');
       return;
     }
 
-    // First try to find the invitation by invitation ID in both _id and id fields
-    const invitations = Array.isArray(pendingInvitations) ? pendingInvitations : [];
-    console.log('Current pending invitations:', invitations);
-    
-    // Try to find by _id or id field
-    let invitation = invitations.find(inv => {
-      if (!inv) return false;
-      return inv._id === invitationId || inv.id === invitationId;
-    });
-    
-    console.log('Found invitation in local data:', invitation);
-    
-    // If not found, try to fetch fresh invitations
-    if (!invitation) {
-      try {
-        console.log('Fetching fresh invitations...');
-        const response = await getPendingInvitations();
-        console.log('Fresh invitations response:', response);
-        if (response && response.success && Array.isArray(response.data)) {
-          // Update local state with fresh data
-          setPendingInvitations(response.data);
-          
-          // Try to find the invitation again
-          invitation = response.data.find(inv => {
-            if (!inv) return false;
-            return inv._id === invitationId || inv.id === invitationId;
-          });
-          
-          console.log('Found invitation in fresh data:', invitation);
+    try {
+      console.log('Fetching fresh invitations...');
+      // Always fetch fresh invitation data to ensure we have the latest status
+      const response = await getPendingInvitations();
+      console.log('Fresh invitations response:', response);
+
+      if (response && response.success && Array.isArray(response.data)) {
+        // Update local state with fresh data
+        setPendingInvitations(response.data);
+
+        // Try to find the invitation by ID
+        const invitation = response.data.find(inv => {
+          if (!inv) return false;
+          return String(inv._id) === String(invitationId);
+        });
+
+        console.log('Found invitation in fresh data:', invitation);
+
+        // Only show modal if invitation exists and is still pending
+        if (invitation && invitation.status === 'pending') {
+          console.log('Showing invitation modal with:', invitation);
+          setSelectedInvitation(invitation);
+          setShowInvitationModal(true);
+        } else {
+          console.error('Invitation not found or already responded to:', invitationId);
+          const activityType = notification.activityData?.type;
+          if (activityType === 'invitation_accepted' || activityType === 'invitation_declined') {
+            alert('This invitation has already been responded to.');
+          } else {
+            alert('This invitation has already been responded to or has expired.');
+          }
         }
-      } catch (error) {
-        console.error('Error fetching invitations:', error);
+      } else {
+        console.error('Failed to fetch invitations:', response);
+        alert('Failed to load invitation details. Please try again.');
       }
-    }
-
-    // If we still don't have an invitation, try to create one from notification data
-    if (!invitation && notification.activityData) {
-      console.log('Creating invitation from notification data');
-      invitation = {
-        _id: invitationId,
-        room: notification.activityData.room || { _id: 'unknown', name: 'Unknown Room' },
-        invitedBy: notification.activityData.user || { _id: 'unknown', username: 'Unknown User' },
-        status: 'pending',
-        createdAt: notification.activityData.createdAt || new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        message: notification.message || 'You have been invited to join a room'
-      };
-    }
-
-    // If we have an invitation, show the modal
-    if (invitation) {
-      console.log('Showing invitation modal with:', invitation);
-      setSelectedInvitation(invitation);
-      setShowInvitationModal(true);
-    } else {
-      console.error('Invitation not found with ID:', invitationId);
-      alert('Invitation not found. It may have expired or been already responded to.');
+    } catch (error) {
+      console.error('Error fetching invitations:', error);
+      alert('Error loading invitation details. Please refresh the page and try again.');
     }
   };
 
@@ -611,7 +609,9 @@ const Notifications = () => {
         {/* Notifications List */}
         <section>
           <h2 className="text-2xl font-bold text-white mb-5">
-            {filterType === "All" ? "All Notifications" : `${filterType.charAt(0).toUpperCase() + filterType.slice(1)} Notifications`}
+            {filterType === "All" ? "All Notifications" :
+             filterType === "invitation" ? "Actionable Invitations" :
+             `${filterType.charAt(0).toUpperCase() + filterType.slice(1)} Notifications`}
           </h2>
           <div className="space-y-4">
             {notificationsWithFormattedTime.map((notification) => (

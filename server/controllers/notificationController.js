@@ -36,14 +36,14 @@ const getNotifications = async (req, res) => {
       user: { $ne: userId }, // Exclude current user's activities
       type: {
         $in: [
-          'message_sent',
+          // Both Activity + Notifications - Important events for both record and alerts
           'file_created',
-          'file_edited',
           'file_deleted',
           'file_renamed',
-          'code_executed',
           'user_joined',
-          'user_left'
+          'user_left',
+          'room_created',
+          'room_deleted'
         ]
       },
       _id: { $nin: deletedActivityIds }
@@ -57,11 +57,11 @@ const getNotifications = async (req, res) => {
           user: userId,
           type: {
             $in: [
+              // Notification Only (Alerts) - Actionable items that need user attention
               'invitation_sent',
               'invitation_accepted',
               'invitation_declined',
               'room_created',
-              'room_updated',
               'room_deleted'
             ]
           }
@@ -92,10 +92,8 @@ const getNotifications = async (req, res) => {
     let filteredActivities = paginatedActivities;
     if (type && type !== 'All') {
       const typeMapping = {
-        'room': ['room_created', 'room_updated', 'room_deleted', 'user_joined', 'user_left'],
-        'file': ['file_created', 'file_edited', 'file_deleted', 'file_renamed'],
-        'message': ['message_sent'],
-        'system': ['code_executed'],
+        'room': ['room_created', 'room_deleted', 'user_joined', 'user_left'],
+        'file': ['file_created', 'file_deleted', 'file_renamed'],
         'invitation': ['invitation_sent', 'invitation_accepted', 'invitation_declined']
       };
 
@@ -206,12 +204,14 @@ const markAllNotificationsAsRead = async (req, res) => {
       room: { $in: roomIds },
       type: {
         $in: [
-          'message_sent',
+          // Both Activity + Notifications
           'file_created',
-          'file_edited',
           'file_deleted',
           'file_renamed',
-          'code_executed'
+          'user_joined',
+          'user_left',
+          'room_created',
+          'room_deleted'
         ]
       },
       _id: { $nin: deletedActivityIds }
@@ -222,13 +222,11 @@ const markAllNotificationsAsRead = async (req, res) => {
       user: userId,
       type: {
         $in: [
-          'user_joined',
-          'user_left',
+          // Notification Only (Alerts)
           'invitation_sent',
           'invitation_accepted',
           'invitation_declined',
           'room_created',
-          'room_updated',
           'room_deleted'
         ]
       },
@@ -338,14 +336,14 @@ const clearAllNotifications = async (req, res) => {
           room: { $in: roomIds },
           type: {
             $in: [
-              'message_sent',
+              // Both Activity + Notifications
               'file_created',
-              'file_edited',
               'file_deleted',
               'file_renamed',
-              'code_executed',
               'user_joined',
-              'user_left'
+              'user_left',
+              'room_created',
+              'room_deleted'
             ]
           }
         },
@@ -354,11 +352,11 @@ const clearAllNotifications = async (req, res) => {
           user: userId,
           type: {
             $in: [
+              // Notification Only (Alerts)
               'invitation_sent',
               'invitation_accepted',
               'invitation_declined',
               'room_created',
-              'room_updated',
               'room_deleted'
             ]
           }

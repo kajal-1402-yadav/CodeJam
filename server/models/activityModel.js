@@ -16,22 +16,23 @@ const activitySchema = new Schema({
   type: {
     type: String,
     enum: [
-        // Permanent activities (stored in database)
-        'file_created',
+        // Activity Only (History/Log Feed) - Historical events for tracking
         'file_edited',
-        'file_deleted',
-        'file_renamed',
         'message_sent',
         'code_executed',
-        'room_created',
         'room_updated',
+        // Both Activity + Notifications - Important events for both record and alerts
+        'file_created',
+        'file_deleted',
+        'file_renamed',
+        'user_joined',
+        'user_left',
+        'room_created',
         'room_deleted',
+        // Notification Only (Alerts) - Actionable items that need user attention
         'invitation_sent',
         'invitation_accepted',
         'invitation_declined',
-        // Temporary activities (real-time only, not stored)
-        'user_joined',
-        'user_left',
     ],
     required: true
   },

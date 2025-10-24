@@ -92,6 +92,11 @@ const sendInvitation = async (req, res) => {
                     { path: 'user', select: 'username email' },
                     { path: 'room', select: 'name' }
                 ]);
+
+                // Emit socket event for new invitation notification
+                if (req.io) {
+                    req.io.emit('activityCreated', activity);
+                }
             }
         } catch (activityError) {
             console.error('Error creating invitation activity:', activityError);
@@ -129,7 +134,11 @@ const getUserInvitations = async (req, res) => {
         const userId = req.user._id;
         const { status } = req.query; // Optional filter by status
 
-        let filter = { invitedUser: userId };
+        let filter = {
+            invitedUser: userId,
+            status: 'pending',
+            expiresAt: { $gt: new Date() } // Only non-expired invitations
+        };
         if (status) {
             filter.status = status;
         }
@@ -193,6 +202,8 @@ const respondToInvitation = async (req, res) => {
 
         // Update invitation status
         invitation.status = response === 'accept' ? 'accepted' : 'declined';
+        // Set expiresAt to now so invitation expires immediately (will be auto-deleted by TTL)
+        invitation.expiresAt = new Date();
         await invitation.save();
 
         let roomUpdate = {};
@@ -237,16 +248,28 @@ const respondToInvitation = async (req, res) => {
             });
 
             if (!existingResponseActivity) {
-                await Activity.create({
+                const responseActivity = await Activity.create({
                     type: response === 'accept' ? 'invitation_accepted' : 'invitation_declined',
                     user: userId,
                     room: invitation.room,
                     description: `${req.user.username} ${response === 'accept' ? 'accepted' : 'declined'} an invitation to join "${roomData.name}"`,
                     metadata: {
                         roomName: roomData.name,
-                        response: response
+                        response: response,
+                        invitationId: invitationId // Add invitation ID for linking
                     }
                 });
+
+                // Populate the activity
+                await Activity.populate(responseActivity, [
+                    { path: 'user', select: 'username email' },
+                    { path: 'room', select: 'name' }
+                ]);
+
+                // Emit socket event for invitation response notification
+                if (req.io) {
+                    req.io.emit('activityCreated', responseActivity);
+                }
             }
         } catch (activityError) {
             console.error('Error creating invitation response activity:', activityError);
@@ -276,7 +299,10 @@ const getSentInvitations = async (req, res) => {
         const userId = req.user._id;
         const { status } = req.query; // Optional filter by status
 
-        let filter = { invitedBy: userId };
+        let filter = {
+            invitedBy: userId,
+            expiresAt: { $gt: new Date() } // Only non-expired invitations
+        };
         if (status) {
             filter.status = status;
         }

@@ -250,12 +250,8 @@ const socketHandler = (io) => {
                             }
                         });
 
-                        // Emit socket event for new activity (global for dashboard)
-                        const populatedMessageActivity = await Activity.findById(messageActivity._id)
-                            .populate('user', 'username email')
-                            .populate('room', 'name');
-                        // Emit to all sockets except the sender
-                        socket.broadcast.emit('activityCreated', populatedMessageActivity);
+                        // Note: message_sent activities are stored in database but not broadcast as notifications
+                        // They only appear in the activity feed (history), not as real-time alerts
                     }
                 } catch (activityError) {
                     console.error('Error creating message activity:', activityError);
@@ -308,12 +304,8 @@ const socketHandler = (io) => {
                                         }
                                     });
 
-                                    // Emit socket event for new activity (global for dashboard)
-                                    const populatedFileEditActivity = await Activity.findById(fileEditActivity._id)
-                                        .populate('user', 'username email')
-                                        .populate('room', 'name');
-                                    // Emit to all sockets except the sender
-                                    socket.broadcast.emit('activityCreated', populatedFileEditActivity);
+                                    // Note: file_edited activities are stored in database but not broadcast as notifications
+                                    // They only appear in the activity feed (history), not as real-time alerts
                                 }
                             }
                         } catch (activityError) {
@@ -543,12 +535,8 @@ const socketHandler = (io) => {
                             }
                         });
 
-                        // Emit socket event for new activity (global for dashboard)
-                        const populatedCodeActivity = await Activity.findById(codeActivity._id)
-                            .populate('user', 'username email')
-                            .populate('room', 'name');
-                        // Emit to all sockets except the sender
-                        socket.broadcast.emit('activityCreated', populatedCodeActivity);
+                        // Note: code_executed activities are stored in database but not broadcast as notifications
+                        // They only appear in the activity feed (history), not as real-time alerts
                     }
                 } catch (activityError) {
                     console.error('Error creating code execution activity:', activityError);
