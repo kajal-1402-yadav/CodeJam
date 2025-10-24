@@ -21,7 +21,7 @@ const createRoom = async (req, res) => {
         if (participants) {
             const invalidParticipants = participants.filter(id => !mongoose.Types.ObjectId.isValid(id));
             if (invalidParticipants.length > 0) {
-                return res.status(400).json({ 
+                return res.status(400).json({
                     error: "Invalid participant Ids",
                     invalidIds: invalidParticipants
                 });
@@ -29,7 +29,7 @@ const createRoom = async (req, res) => {
         }
 
         const room = await Room.create({
-            name,
+            name: name.trim(), // Trim whitespace before saving
             createdBy: req.user._id, // Automatically set from authenticated user
             participants: participants ? [...participants, req.user._id] : [req.user._id] // Include creator as participant
         });
@@ -86,6 +86,10 @@ const createRoom = async (req, res) => {
         res.status(201).json(populatedRoom);
     }
     catch (error) {
+        // Handle duplicate room name error specifically
+        if (error.code === 11000) {
+            return res.status(400).json({ error: "A room with this name already exists. Please choose a different name." });
+        }
         res.status(400).json({ error: error.message });
     }
 }
@@ -196,6 +200,10 @@ const updateRoom = async (req, res) => {
         res.status(200).json(updatedRoom);
     }
     catch (error) {
+        // Handle duplicate room name error specifically
+        if (error.code === 11000) {
+            return res.status(400).json({ error: "A room with this name already exists. Please choose a different name." });
+        }
         res.status(400).json({ error: error.message });
     }
 }

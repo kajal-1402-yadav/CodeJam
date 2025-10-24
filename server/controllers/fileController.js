@@ -1,4 +1,5 @@
 const File = require("../models/fileModel");
+const Activity = require("../models/activityModel");
 const mongoose = require("mongoose");
 
 
@@ -45,6 +46,34 @@ const uploadFile = async (req, res) => {
         folder: folder || null
       });
 
+      // Create activity for file creation
+      try {
+        const room = await require("../models/roomModel").findById(roomId).select('name');
+        const roomName = room?.name || 'Unknown Room';
+
+        const createActivity = await Activity.create({
+          room: roomId,
+          user: uploadedBy,
+          type: 'file_created',
+          description: `${req.user?.username || 'User'} uploaded file "${filename}" to ${roomName}`,
+          metadata: {
+            filename,
+            roomName,
+            fileId: file._id
+          }
+        });
+
+        // Emit socket event for new activity (broadcast to all users)
+        if (req.io) {
+          const populatedActivity = await Activity.findById(createActivity._id)
+            .populate('user', 'username email')
+            .populate('room', 'name');
+          req.io.emit('activityCreated', populatedActivity);
+        }
+      } catch (activityError) {
+        console.error('Error creating file upload activity:', activityError);
+      }
+
       res.status(201).json(file);
     } else {
       // Handle JSON file creation (existing logic)
@@ -88,6 +117,34 @@ const uploadFile = async (req, res) => {
         language,
         folder: folder || null
       });
+
+      // Create activity for file creation
+      try {
+        const room = await require("../models/roomModel").findById(roomId).select('name');
+        const roomName = room?.name || 'Unknown Room';
+
+        const createActivity = await Activity.create({
+          room: roomId,
+          user: uploadedBy,
+          type: 'file_created',
+          description: `${req.user?.username || 'User'} uploaded file "${filename}" to ${roomName}`,
+          metadata: {
+            filename,
+            roomName,
+            fileId: file._id
+          }
+        });
+
+        // Emit socket event for new activity (broadcast to all users)
+        if (req.io) {
+          const populatedActivity = await Activity.findById(createActivity._id)
+            .populate('user', 'username email')
+            .populate('room', 'name');
+          req.io.emit('activityCreated', populatedActivity);
+        }
+      } catch (activityError) {
+        console.error('Error creating file upload activity:', activityError);
+      }
 
       res.status(201).json(file);
     }

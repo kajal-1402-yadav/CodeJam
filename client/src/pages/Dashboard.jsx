@@ -192,6 +192,27 @@ const Dashboard = () => {
     if (socket) {
       // Listen for new activities
       socket.on('activityCreated', (newActivity) => {
+        // Only add activities that should appear in the activity feed
+        const activityOnlyTypes = [
+          'file_edited',
+          'message_sent',
+          'code_executed',
+          'room_updated'
+        ];
+        const bothTypes = [
+          'file_created',
+          'file_deleted',
+          'file_renamed',
+          'user_joined',
+          'user_left',
+          'room_created',
+          'room_deleted'
+        ];
+
+        if (!activityOnlyTypes.includes(newActivity.type) && !bothTypes.includes(newActivity.type)) {
+          return; // Skip notification-only activities
+        }
+
         setActivities(prev => {
           // Check if this activity already exists to prevent duplicates
           const exists = prev.some(activity =>
@@ -291,9 +312,32 @@ const Dashboard = () => {
 
   const fetchActivities = async () => {
     const result = await getActivities({ limit: 10 });
-    
+
     if (result.success) {
-      setActivities(result.data);
+      // Filter out notification-only activities, keep only activity feed items
+      const activityFeedActivities = result.data.filter(activity => {
+        const activityOnlyTypes = [
+          // Activity Only (History/Log Feed) - Historical events for tracking
+          'file_edited',
+          'message_sent',
+          'code_executed',
+          'room_updated'
+        ];
+        const bothTypes = [
+          // Both Activity + Notifications - Important events for both record and alerts
+          'file_created',
+          'file_deleted',
+          'file_renamed',
+          'user_joined',
+          'user_left',
+          'room_created',
+          'room_deleted'
+        ];
+
+        return activityOnlyTypes.includes(activity.type) || bothTypes.includes(activity.type);
+      });
+
+      setActivities(activityFeedActivities);
     } else {
       console.error('Error fetching activities:', result.error);
     }
@@ -357,11 +401,25 @@ const Dashboard = () => {
     (room.createdBy && room.createdBy.username && room.createdBy.username.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
+  const [createError, setCreateError] = useState(""); // Separate error for create modal
+
   const handleCreateRoom = async (e) => {
     e.preventDefault();
     if (!newRoomName.trim()) return;
 
+    // Frontend validation: Check if room name already exists in current rooms (case-insensitive)
+    const trimmedName = newRoomName.trim().toLowerCase();
+    const existingRoom = rooms.find(room =>
+      room.name.toLowerCase() === trimmedName
+    );
+
+    if (existingRoom) {
+      setCreateError("A room with this name already exists. Please choose a different name.");
+      return;
+    }
+
     setIsCreating(true);
+    setCreateError(""); // Clear any previous errors
 
     const result = await createRoom({
       name: newRoomName.trim(),
@@ -378,10 +436,16 @@ const Dashboard = () => {
         return [result.data, ...prev];
       });
       setNewRoomName("");
+      setCreateError("");
       setShowCreateModal(false);
     } else {
       console.error('Error creating room:', result.error);
-      setError(result.error);
+      // Handle specific duplicate error from backend
+      if (result.error.includes("already exists")) {
+        setCreateError(result.error);
+      } else {
+        setCreateError("Failed to create room. Please try again.");
+      }
     }
 
     setIsCreating(false);
@@ -494,13 +558,31 @@ const Dashboard = () => {
   };
 
   const handleUpdateRoom = async (roomId, updateData) => {
+    // Frontend validation: Check if room name already exists (excluding current room)
+    if (updateData.name) {
+      const trimmedName = updateData.name.trim().toLowerCase();
+      const existingRoom = rooms.find(room =>
+        room._id !== roomId && room.name.toLowerCase() === trimmedName
+      );
+
+      if (existingRoom) {
+        setError("A room with this name already exists. Please choose a different name.");
+        return;
+      }
+    }
+
     const result = await updateRoom(roomId, updateData);
-    
+
     if (result.success) {
       setRooms(prev => prev.map(room => room._id === roomId ? result.data : room));
     } else {
       console.error('Error updating room:', result.error);
-      setError(result.error);
+      // Handle specific duplicate error from backend
+      if (result.error.includes("already exists")) {
+        setError(result.error);
+      } else {
+        setError("Failed to update room. Please try again.");
+      }
     }
   };
 
@@ -746,16 +828,25 @@ const Dashboard = () => {
                   <input
                     type="text"
                     value={newRoomName}
-                    onChange={(e) => setNewRoomName(e.target.value)}
+                    onChange={(e) => {
+                      setNewRoomName(e.target.value);
+                      setCreateError(""); // Clear error when user starts typing
+                    }}
                     className="w-full px-4 py-3 rounded-lg bg-[#1E1E1E] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#A78BFA] focus:border-transparent"
                     placeholder="Enter room name"
                     required
                   />
+                  {createError && (
+                    <p className="text-red-400 text-sm mt-2">{createError}</p>
+                  )}
                 </div>
                 <div className="flex gap-3">
                   <button
                     type="button"
-                    onClick={() => setShowCreateModal(false)}
+                    onClick={() => {
+                      setShowCreateModal(false);
+                      setCreateError("");
+                    }}
                     className="flex-1 px-4 py-3 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700 transition-colors"
                   >
                     Cancel

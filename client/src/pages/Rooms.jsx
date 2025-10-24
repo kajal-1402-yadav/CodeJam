@@ -230,12 +230,25 @@ const Rooms = () => {
        (room.createdBy && room.createdBy.username && room.createdBy.username.toLowerCase().includes(searchQuery.toLowerCase())));
   });
 
+  const [createError, setCreateError] = useState(""); // Separate error for create modal
+
   const handleCreateRoom = async (e) => {
     e.preventDefault();
     if (!newRoomName.trim()) return;
 
+    // Frontend validation: Check if room name already exists in current rooms (case-insensitive)
+    const trimmedName = newRoomName.trim().toLowerCase();
+    const existingRoom = rooms.find(room =>
+      room.name.toLowerCase() === trimmedName
+    );
+
+    if (existingRoom) {
+      setCreateError("A room with this name already exists. Please choose a different name.");
+      return;
+    }
+
     setIsCreating(true);
-    console.log('Creating room:', newRoomName.trim());
+    setCreateError(""); // Clear any previous errors
 
     const result = await createRoom({
       name: newRoomName.trim(),
@@ -255,10 +268,16 @@ const Rooms = () => {
         return [result.data, ...prev];
       });
       setNewRoomName("");
+      setCreateError("");
       setShowCreateModal(false);
     } else {
       console.error('Error creating room:', result.error);
-      setError(result.error);
+      // Handle specific duplicate error from backend
+      if (result.error.includes("already exists")) {
+        setCreateError(result.error);
+      } else {
+        setCreateError("Failed to create room. Please try again.");
+      }
     }
 
     setIsCreating(false);
@@ -272,6 +291,7 @@ const Rooms = () => {
     setRoomToEdit(room);
     setEditRoomName(room.name);
     setShowEditModal(true);
+    setError(""); // Clear any existing errors
   };
 
   const confirmEditRoom = async () => {
@@ -282,34 +302,80 @@ const Rooms = () => {
       return;
     }
 
+    // Frontend validation: Check if room name already exists (excluding current room)
+    const trimmedName = editRoomName.trim().toLowerCase();
+    const existingRoom = rooms.find(room =>
+      room._id !== roomToEdit._id && room.name.toLowerCase() === trimmedName
+    );
+
+    if (existingRoom) {
+      setError("A room with this name already exists. Please choose a different name.");
+      return;
+    }
+
     try {
       setIsEditing(true);
-      await updateRoom(roomToEdit._id, { name: editRoomName.trim() });
-      setShowEditModal(false);
-      setRoomToEdit(null);
-      setEditRoomName("");
+      setError(null); // Clear any previous errors
+
+      const result = await updateRoom(roomToEdit._id, { name: editRoomName.trim() });
+
+      if (result.success) {
+        setRooms(prev => prev.map(room => String(room._id) === String(roomToEdit._id) ? result.data : room));
+        setShowEditModal(false);
+        setRoomToEdit(null);
+        setEditRoomName("");
+        setError(""); // Clear errors on success
+      } else {
+        console.error('Error renaming room:', result.error);
+        // Handle specific duplicate error from backend
+        if (result.error.includes("already exists")) {
+          setError(result.error);
+        } else {
+          setError("Failed to update room. Please try again.");
+        }
+      }
     } catch (error) {
       console.error('Error renaming room:', error);
-      setError(error.message);
+      setError("Failed to update room. Please try again.");
     } finally {
       setIsEditing(false);
     }
   };
 
   const handleUpdateRoom = async (roomId, updateData) => {
+    // Frontend validation: Check if room name already exists (excluding current room)
+    if (updateData.name) {
+      const trimmedName = updateData.name.trim().toLowerCase();
+      const existingRoom = rooms.find(room =>
+        room._id !== roomId && room.name.toLowerCase() === trimmedName
+      );
+
+      if (existingRoom) {
+        setError("A room with this name already exists. Please choose a different name.");
+        return;
+      }
+    }
+
     const result = await updateRoom(roomId, updateData);
 
     if (result.success) {
       setRooms(prev => prev.map(room => String(room._id) === String(roomId) ? result.data : room));
+      setError(""); // Clear errors on success
     } else {
       console.error('Error updating room:', result.error);
-      setError(result.error);
+      // Handle specific duplicate error from backend
+      if (result.error.includes("already exists")) {
+        setError(result.error);
+      } else {
+        setError("Failed to update room. Please try again.");
+      }
     }
   };
 
   const handleDeleteRoom = (room) => {
     setRoomToDelete(room);
     setShowDeleteModal(true);
+    setError(""); // Clear any existing errors
   };
 
   const confirmDeleteRoom = async () => {
@@ -573,16 +639,25 @@ const Rooms = () => {
                   <input
                     type="text"
                     value={newRoomName}
-                    onChange={(e) => setNewRoomName(e.target.value)}
+                    onChange={(e) => {
+                      setNewRoomName(e.target.value);
+                      setCreateError(""); // Clear error when user starts typing
+                    }}
                     className="w-full px-4 py-3 rounded-lg bg-[#1E1E1E] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#A78BFA] focus:border-transparent"
                     placeholder="Enter room name"
                     required
                   />
+                  {createError && (
+                    <p className="text-red-400 text-sm mt-2">{createError}</p>
+                  )}
                 </div>
                 <div className="flex gap-3">
                   <button
                     type="button"
-                    onClick={() => setShowCreateModal(false)}
+                    onClick={() => {
+                      setShowCreateModal(false);
+                      setCreateError("");
+                    }}
                     className="flex-1 px-4 py-3 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700 transition-colors"
                   >
                     Cancel
@@ -613,11 +688,17 @@ const Rooms = () => {
                 <input
                   type="text"
                   value={editRoomName}
-                  onChange={(e) => setEditRoomName(e.target.value)}
+                  onChange={(e) => {
+                    setEditRoomName(e.target.value);
+                    setError(""); // Clear error when user starts typing
+                  }}
                   className="w-full px-4 py-3 rounded-lg bg-[#1E1E1E] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#A78BFA] focus:border-transparent"
                   placeholder="Enter room name"
                   autoFocus
                 />
+                {error && (
+                  <p className="text-red-400 text-sm mt-2">{error}</p>
+                )}
               </div>
               <div className="flex gap-3">
                 <button
@@ -626,6 +707,7 @@ const Rooms = () => {
                     setShowEditModal(false);
                     setRoomToEdit(null);
                     setEditRoomName("");
+                    setError("");
                   }}
                   className="flex-1 px-4 py-3 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700 transition-colors"
                   disabled={isEditing}
