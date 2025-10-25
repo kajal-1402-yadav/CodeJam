@@ -173,7 +173,9 @@ const getRoomActivities = async (req, res) => {
         // Activity Only (History/Log Feed) - Historical events for tracking
         'file_edited', 'message_sent', 'code_executed', 'room_updated',
         // Both Activity + Notifications - Important events for both record and alerts
-        'file_created', 'file_deleted', 'file_renamed', 'user_joined', 'user_left', 'room_created', 'room_deleted'
+        'file_created', 'file_deleted', 'file_renamed', 'user_joined', 'user_left', 'room_created', 'room_deleted',
+        // Invitation responses - Important events that should show in activity feeds
+        'invitation_accepted', 'invitation_declined'
       ];
       filteredActivities = paginatedActivities.filter(activity =>
         permanentTypes.includes(activity.type)
@@ -286,7 +288,9 @@ const getAllRoomsActivities = async (req, res) => {
         // Activity Only (History/Log Feed) - Historical events for tracking
         'file_edited', 'message_sent', 'code_executed', 'room_updated',
         // Both Activity + Notifications - Important events for both record and alerts
-        'file_created', 'file_deleted', 'file_renamed', 'user_joined', 'user_left', 'room_created', 'room_deleted'
+        'file_created', 'file_deleted', 'file_renamed', 'user_joined', 'user_left', 'room_created', 'room_deleted',
+        // Invitation responses - Important events that should show in activity feeds
+        'invitation_accepted', 'invitation_declined'
       ];
       filteredActivities = paginatedActivities.filter(activity =>
         permanentTypes.includes(activity.type)

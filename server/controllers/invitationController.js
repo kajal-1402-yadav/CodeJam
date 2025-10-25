@@ -59,47 +59,60 @@ const sendInvitation = async (req, res) => {
             message
         });
 
-        // Create activity for invitation sent (check for duplicates)
+        // Create activity for invitation sent - BOTH for sender and receiver
         try {
-            // Check if an invitation activity for this user to this room already exists in the last hour
-            const oneHourAgo = new Date(Date.now() - 3600000);
-            const existingInvitationActivity = await Activity.findOne({
-                room: roomId,
-                user: invitedUser._id, // Changed: activity should be for the invited user, not the sender
+            // 1. Activity for the SENDER (inviter) - record that they sent an invitation
+            const senderActivity = await Activity.create({
                 type: 'invitation_sent',
-                'metadata.invitedUserEmail': invitedUser.email,
-                createdAt: { $gte: oneHourAgo }
+                user: invitedBy, // SENDER gets the activity
+                room: roomId,
+                description: `Invitation sent to ${invitedUserEmail} for room "${room.name}"`,
+                metadata: {
+                    invitedUserEmail: invitedUserEmail,
+                    invitedUserName: invitedUser.username,
+                    roomName: room.name,
+                    invitedBy: invitedBy,
+                    invitedByName: req.user.username,
+                    invitationId: invitation._id,
+                    isSenderActivity: true // Flag to distinguish sender's activity
+                }
             });
 
-            if (!existingInvitationActivity) {
-                const activity = await Activity.create({
-                    type: 'invitation_sent',
-                    user: invitedUser._id, // Changed: activity should be for the invited user, not the sender
-                    room: roomId,
-                    description: `${req.user.username} sent an invitation to ${invitedUser.username}`,
-                    metadata: {
-                        invitedUserEmail: invitedUser.email,
-                        invitedUserName: invitedUser.username,
-                        roomName: room.name || 'Unknown Room',
-                        invitedBy: invitedBy, // Add who sent the invitation
-                        invitedByName: req.user.username, // Add sender's name for easier frontend handling
-                        invitationId: invitation._id // Add invitation ID for linking
-                    }
-                });
-
-                // Populate the activity with user information for better frontend handling
-                await Activity.populate(activity, [
-                    { path: 'user', select: 'username email' },
-                    { path: 'room', select: 'name' }
-                ]);
-
-                // Emit socket event for new invitation notification
-                if (req.io) {
-                    req.io.emit('activityCreated', activity);
-                }
+            // Populate and emit sender's activity
+            const populatedSenderActivity = await Activity.findById(senderActivity._id)
+                .populate('user', 'username email')
+                .populate('room', 'name');
+            if (req.io) {
+                req.io.emit('activityCreated', populatedSenderActivity);
             }
+
+            // 2. Activity for the RECEIVER (invitee) - actionable invitation
+            const receiverActivity = await Activity.create({
+                type: 'invitation_sent',
+                user: invitedUser._id, // RECEIVER gets the activity
+                room: roomId,
+                description: `You have been invited to join "${room.name}" by ${req.user.username}`,
+                metadata: {
+                    invitedUserEmail: invitedUserEmail,
+                    invitedUserName: invitedUser.username,
+                    roomName: room.name,
+                    invitedBy: invitedBy,
+                    invitedByName: req.user.username,
+                    invitationId: invitation._id,
+                    isReceiverActivity: true // Flag to distinguish receiver's activity
+                }
+            });
+
+            // Populate and emit receiver's activity
+            const populatedReceiverActivity = await Activity.findById(receiverActivity._id)
+                .populate('user', 'username email')
+                .populate('room', 'name');
+            if (req.io) {
+                req.io.emit('activityCreated', populatedReceiverActivity);
+            }
+
         } catch (activityError) {
-            console.error('Error creating invitation activity:', activityError);
+            console.error('Error creating invitation activities:', activityError);
         }
 
         // Populate the invitation for response
@@ -200,6 +213,10 @@ const respondToInvitation = async (req, res) => {
             return res.status(400).json({ error: "This invitation has expired" });
         }
 
+        // Get inviter information for notifications
+        const inviter = await User.findById(invitation.invitedBy).select('username email');
+        const invitee = await User.findById(userId).select('username email');
+
         // Update invitation status
         invitation.status = response === 'accept' ? 'accepted' : 'declined';
         // Set expiresAt to now so invitation expires immediately (will be auto-deleted by TTL)
@@ -213,14 +230,14 @@ const respondToInvitation = async (req, res) => {
             roomUpdate = {
                 $addToSet: { participants: userId }
             };
-            
+
             // Emit socket event for room participant update
             if (req.io) {
                 req.io.emit("roomParticipantsUpdated", {
                     roomId: invitation.room,
                     participants: (await Room.findById(invitation.room)).participants.length + 1
                 });
-                
+
                 // Emit userJoinedRoom event for dashboard updates
                 const room = await Room.findById(invitation.room).populate('createdBy participants', 'name email _id username');
                 req.io.emit("userJoinedRoom", {
@@ -233,46 +250,79 @@ const respondToInvitation = async (req, res) => {
         // Update the room
         await Room.findByIdAndUpdate(invitation.room, roomUpdate);
 
-        // Get room data for activity
+        // Get room data for activities
         const roomData = await Room.findById(invitation.room);
 
-        // Create activity for invitation response (check for duplicates)
+        // Create activities for invitation response - BOTH for receiver and sender
         try {
-            // Check if an invitation response activity already exists for this invitation
-            const oneHourAgo = new Date(Date.now() - 3600000);
-            const existingResponseActivity = await Activity.findOne({
-                room: invitation.room,
-                user: userId,
-                type: response === 'accept' ? 'invitation_accepted' : 'invitation_declined',
-                createdAt: { $gte: oneHourAgo }
-            });
-
-            if (!existingResponseActivity) {
-                const responseActivity = await Activity.create({
-                    type: response === 'accept' ? 'invitation_accepted' : 'invitation_declined',
-                    user: userId,
+            // 1. Activity for the RECEIVER (invitee) - confirmation
+            let receiverActivity;
+            if (response === 'accept') {
+                // For accepted invitations, create a user_joined activity for the receiver
+                receiverActivity = await Activity.create({
+                    type: 'user_joined',
+                    user: userId, // RECEIVER gets the activity
                     room: invitation.room,
-                    description: `${req.user.username} ${response === 'accept' ? 'accepted' : 'declined'} an invitation to join "${roomData.name}"`,
+                    description: `You joined room "${roomData.name}" successfully`,
                     metadata: {
                         roomName: roomData.name,
+                        invitationId: invitationId,
                         response: response,
-                        invitationId: invitationId // Add invitation ID for linking
+                        joinedViaInvitation: true // Flag to indicate this was via invitation
                     }
                 });
-
-                // Populate the activity
-                await Activity.populate(responseActivity, [
-                    { path: 'user', select: 'username email' },
-                    { path: 'room', select: 'name' }
-                ]);
-
-                // Emit socket event for invitation response notification
-                if (req.io) {
-                    req.io.emit('activityCreated', responseActivity);
-                }
+            } else {
+                // For declined invitations, create invitation_declined for receiver
+                receiverActivity = await Activity.create({
+                    type: 'invitation_declined',
+                    user: userId, // RECEIVER gets the activity
+                    room: invitation.room,
+                    description: `You declined the invitation to "${roomData.name}"`,
+                    metadata: {
+                        roomName: roomData.name,
+                        invitationId: invitationId,
+                        response: response,
+                        declinedInvitation: true // Flag to indicate invitation was declined
+                    }
+                });
             }
+
+            // Populate and emit receiver's activity
+            const populatedReceiverActivity = await Activity.findById(receiverActivity._id)
+                .populate('user', 'username email')
+                .populate('room', 'name');
+            if (req.io) {
+                req.io.emit('activityCreated', populatedReceiverActivity);
+            }
+
+            // 2. Activity for the SENDER (inviter) - notification about response
+            const senderActivity = await Activity.create({
+                type: response === 'accept' ? 'invitation_accepted' : 'invitation_declined',
+                user: invitation.invitedBy, // SENDER gets the activity
+                room: invitation.room,
+                description: response === 'accept'
+                    ? `Invitation received by ${invitee.username} for "${roomData.name}"`
+                    : `Invitation declined by ${invitee.username} for "${roomData.name}"`,
+                metadata: {
+                    roomName: roomData.name,
+                    invitationId: invitationId,
+                    response: response,
+                    inviteeName: invitee.username,
+                    inviteeEmail: invitee.email,
+                    isSenderNotification: true // Flag to indicate this is sender notification
+                }
+            });
+
+            // Populate and emit sender's activity
+            const populatedSenderActivity = await Activity.findById(senderActivity._id)
+                .populate('user', 'username email')
+                .populate('room', 'name');
+            if (req.io) {
+                req.io.emit('activityCreated', populatedSenderActivity);
+            }
+
         } catch (activityError) {
-            console.error('Error creating invitation response activity:', activityError);
+            console.error('Error creating invitation response activities:', activityError);
         }
 
         // Populate the response

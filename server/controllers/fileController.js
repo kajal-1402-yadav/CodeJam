@@ -55,7 +55,7 @@ const uploadFile = async (req, res) => {
           room: roomId,
           user: uploadedBy,
           type: 'file_created',
-          description: `${req.user?.username || 'User'} uploaded file "${filename}" to ${roomName}`,
+          description: `${req.user?.username || 'User'} created file "${filename}" in ${roomName}`,
           metadata: {
             filename,
             roomName,
@@ -127,7 +127,7 @@ const uploadFile = async (req, res) => {
           room: roomId,
           user: uploadedBy,
           type: 'file_created',
-          description: `${req.user?.username || 'User'} uploaded file "${filename}" to ${roomName}`,
+          description: `${req.user?.username || 'User'} created file "${filename}" in ${roomName}`,
           metadata: {
             filename,
             roomName,

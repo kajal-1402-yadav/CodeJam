@@ -138,10 +138,10 @@ export const transformActivityToNotification = (activity) => {
   // Determine the notification category for UI filtering
   const getNotificationCategory = (activityType) => {
     if (activityType?.includes('invitation')) {
-      // Only invitation_sent activities are actionable invitations
+      // Only invitation_sent activities for RECEIVERS are actionable invitations
       // invitation_accepted and invitation_declined are system activities
       if (activityType === 'invitation_sent') {
-        return 'invitation';
+        return 'invitation'; // Keep as invitation category for actionable functionality
       }
       return 'system'; // invitation_accepted, invitation_declined go to system
     }
@@ -170,6 +170,10 @@ export const transformActivityToNotification = (activity) => {
       case 'file_renamed':
         return 'File Renamed';
       case 'user_joined':
+        // Check if this join was via invitation
+        if (metadata?.joinedViaInvitation) {
+          return 'Room Joined';
+        }
         return 'User Joined';
       case 'user_left':
         return 'User Left';
@@ -178,11 +182,26 @@ export const transformActivityToNotification = (activity) => {
       case 'room_deleted':
         return 'Room Deleted';
       case 'invitation_sent':
-        return 'Invitation Received';
+        // Different titles for sender vs receiver
+        if (metadata?.isSenderActivity) {
+          return 'Invitation Sent';
+        } else {
+          return 'Invitation Received';
+        }
       case 'invitation_accepted':
-        return 'Invitation Response';
+        // Different titles based on perspective
+        if (metadata?.isSenderNotification) {
+          return 'Invitation Received';
+        } else {
+          return 'Invitation Accepted';
+        }
       case 'invitation_declined':
-        return 'Invitation Response';
+        // Different titles based on perspective
+        if (metadata?.isSenderNotification) {
+          return 'Invitation Declined';
+        } else {
+          return 'Invitation Declined';
+        }
       default:
         return 'Activity';
     }
@@ -194,12 +213,16 @@ export const transformActivityToNotification = (activity) => {
 
     switch (type) {
       case 'file_created':
-        return `${userName} uploaded "${metadata?.filename || 'file'}" to ${metadata?.roomName || 'room'}`;
+        return `${userName} created "${metadata?.filename || 'file'}" in ${metadata?.roomName || 'room'}`;
       case 'file_deleted':
         return `${userName} deleted "${metadata?.filename || 'file'}" from ${metadata?.roomName || 'room'}`;
       case 'file_renamed':
         return `${userName} renamed "${metadata?.oldName || 'file'}" to "${metadata?.filename || 'new file'}" in ${metadata?.roomName || 'room'}`;
       case 'user_joined':
+        // Check if this join was via invitation
+        if (metadata?.joinedViaInvitation) {
+          return `You joined room "${metadata?.roomName || 'room'}" successfully`;
+        }
         return `${userName} joined room "${metadata?.roomName || 'room'}"`;
       case 'user_left':
         return `${userName} left room "${metadata?.roomName || 'room'}"`;
@@ -208,14 +231,32 @@ export const transformActivityToNotification = (activity) => {
       case 'room_deleted':
         return `${userName} deleted room "${metadata?.roomName || 'room'}"`;
       case 'invitation_sent':
-        // For invitation_sent, the activity.user is the person who received the invitation
-        // We need to get the sender's name from the metadata
-        const senderName = metadata?.invitedByName || 'Someone';
-        return `${senderName} sent you an invitation to join "${metadata?.roomName || 'room'}"`;
+        // Handle both sender and receiver invitation activities
+        if (metadata?.isSenderActivity) {
+          // Sender's activity: "Invitation sent to <email> for room <name>"
+          return `${metadata?.invitedByName || 'You'} sent an invitation to ${metadata?.invitedUserEmail || 'someone'} for room "${metadata?.roomName || 'room'}"`;
+        } else {
+          // Receiver's activity: "You have been invited to join <room> by <sender>"
+          return `You have been invited to join "${metadata?.roomName || 'room'}" by ${metadata?.invitedByName || 'someone'}`;
+        }
       case 'invitation_accepted':
-        return `${userName} accepted an invitation to join "${metadata?.roomName || 'room'}"`;
+        // Check if this is sender notification or receiver confirmation
+        if (metadata?.isSenderNotification) {
+          // Sender notification: "Invitation received by X for room..."
+          return `Invitation received by ${metadata?.inviteeName || 'user'} for "${metadata?.roomName || 'room'}"`;
+        } else {
+          // Receiver confirmation: "You accepted an invitation to join..."
+          return `You accepted an invitation to join "${metadata?.roomName || 'room'}"`;
+        }
       case 'invitation_declined':
-        return `${userName} declined an invitation to join "${metadata?.roomName || 'room'}"`;
+        // Check if this is sender notification or receiver confirmation
+        if (metadata?.isSenderNotification) {
+          // Sender notification: "Invitation declined by X for room..."
+          return `Invitation declined by ${metadata?.inviteeName || 'user'} for "${metadata?.roomName || 'room'}"`;
+        } else {
+          // Receiver confirmation: "You declined the invitation to room..."
+          return `You declined the invitation to "${metadata?.roomName || 'room'}"`;
+        }
       default:
         return description || 'Activity occurred';
     }

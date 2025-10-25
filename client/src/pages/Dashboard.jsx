@@ -215,12 +215,22 @@ const Dashboard = () => {
 
         setActivities(prev => {
           // Check if this activity already exists to prevent duplicates
-          const exists = prev.some(activity =>
-            activity._id === newActivity._id ||
-            (activity.description === newActivity.description &&
-             activity.user?._id === newActivity.user?._id &&
-             activity.room?._id === newActivity.room?._id)
-          );
+          const exists = prev.some(activity => {
+            // Exact ID match (fastest check)
+            if (activity._id === newActivity._id) return true;
+
+            // Content-based match for similar activities within time window
+            if (activity.description === newActivity.description &&
+                activity.user?._id === newActivity.user?._id &&
+                activity.room?._id === newActivity.room?._id) {
+
+              // Check if activities are within 30 seconds of each other
+              const timeDiff = Math.abs(new Date(activity.createdAt) - new Date(newActivity.createdAt));
+              return timeDiff < 30000; // 30 seconds
+            }
+
+            return false;
+          });
 
           if (exists) {
             return prev; // Don't add duplicate
@@ -337,7 +347,29 @@ const Dashboard = () => {
         return activityOnlyTypes.includes(activity.type) || bothTypes.includes(activity.type);
       });
 
-      setActivities(activityFeedActivities);
+      // Remove duplicates based on activity ID or content
+      const uniqueActivities = activityFeedActivities.filter((activity, index, self) => {
+        const thirtySecondsAgo = Date.now() - 30000;
+
+        return index === self.findIndex(a => {
+          // Exact ID match (fastest check)
+          if (a._id === activity._id) return true;
+
+          // Content-based match for similar activities within time window
+          if (a.description === activity.description &&
+              a.user?._id === activity.user?._id &&
+              a.room?._id === activity.room?._id) {
+
+            // Check if activities are within 30 seconds of each other
+            const timeDiff = Math.abs(new Date(a.createdAt) - new Date(activity.createdAt));
+            return timeDiff < 30000; // 30 seconds
+          }
+
+          return false;
+        });
+      });
+
+      setActivities(uniqueActivities);
     } else {
       console.error('Error fetching activities:', result.error);
     }
@@ -500,11 +532,16 @@ const Dashboard = () => {
             // If this room isn't in our current rooms list, add it
             if (roomId === roomData._id) {
               setRooms(prev => {
+                // Check if room already exists to prevent duplicates
                 const roomExists = prev.some(r => String(r._id) === String(roomId));
-                if (!roomExists) {
-                  return [room, ...prev];
+                if (roomExists) {
+                  // Update existing room with new data
+                  return prev.map(r =>
+                    String(r._id) === String(roomId) ? { ...r, ...room } : r
+                  );
                 } else {
-                  return prev;
+                  // Add new room
+                  return [room, ...prev];
                 }
               });
               socket.off('userJoinedRoom', handleUserJoinedRoom);

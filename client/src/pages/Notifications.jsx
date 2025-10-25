@@ -47,17 +47,18 @@ const NotificationItem = ({ notification, onMarkRead, onDelete, onAcceptInvitati
 
   const handleInvitationClick = () => {
     const activityType = notification.activityData?.type;
-    // Handle click for any invitation-related activities that have invitationId
+    // Handle click for receiver invitation activities that have invitationId and are not sender activities
     if (notification.type === 'invitation' &&
         activityType?.includes('invitation') &&
-        notification.activityData?.metadata?.invitationId) {
+        notification.activityData?.metadata?.invitationId &&
+        !notification.activityData?.metadata?.isSenderActivity) {
       onInvitationClick(notification);
     }
   };
 
   return (
     <div 
-      className={`bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-4 shadow-md hover:border-[#A78BFA]/50 transition-all duration-300 group border-l-4 transform hover:-translate-y-1 ${getNotificationColor(notification.type)} ${!notification.isRead ? 'bg-[#A78BFA]/5 border-[#A78BFA]/30' : ''} ${notification.type === 'invitation' && notification.activityData?.metadata?.invitationId ? 'cursor-pointer' : 'cursor-default'}`}
+      className={`bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-4 shadow-md hover:border-[#A78BFA]/50 transition-all duration-300 group border-l-4 transform hover:-translate-y-1 ${getNotificationColor(notification.type)} ${!notification.isRead ? 'bg-[#A78BFA]/5 border-[#A78BFA]/30' : ''} ${notification.type === 'invitation' && notification.activityData?.metadata?.invitationId && !notification.activityData?.metadata?.isSenderActivity ? 'cursor-pointer' : 'cursor-default'}`}
       onClick={handleInvitationClick}
     >
       <div className="flex items-start gap-4">
@@ -82,17 +83,21 @@ const NotificationItem = ({ notification, onMarkRead, onDelete, onAcceptInvitati
                       ? 'text-green-400'
                       : notification.activityData?.type === 'invitation_declined'
                         ? 'text-red-400'
-                        : notification.activityData?.type === 'invitation_sent'
+                        : notification.activityData?.type === 'invitation_sent' && !notification.activityData?.metadata?.isSenderActivity
                           ? 'text-orange-400'
                           : 'text-gray-400'
                   }`}>
                     {notification.activityData?.type === 'invitation_accepted'
-                      ? 'Accepted'
+                      ? notification.activityData?.metadata?.isSenderNotification
+                        ? 'Received'
+                        : 'Accepted'
                       : notification.activityData?.type === 'invitation_declined'
                         ? 'Declined'
-                        : notification.activityData?.type === 'invitation_sent'
+                        : notification.activityData?.type === 'invitation_sent' && !notification.activityData?.metadata?.isSenderActivity
                           ? 'Click to respond'
-                          : 'Pending'}
+                          : notification.activityData?.type === 'invitation_sent' && notification.activityData?.metadata?.isSenderActivity
+                            ? 'Sent'
+                            : 'Pending'}
                   </span>
                 )}
               </div>
@@ -156,15 +161,27 @@ const Notifications = () => {
           // Transform activities to notification format
           const transformedNotifications = notificationsResponse.data.map(transformActivityToNotification);
 
-          // Remove duplicates based on activity ID or content
-          const uniqueNotifications = transformedNotifications.filter((notification, index, self) =>
-            index === self.findIndex(n =>
-              n.id === notification.id ||
-              (n.message === notification.message &&
-               n.title === notification.title &&
-               n.type === notification.type)
-            )
-          );
+          // Remove duplicates based on activity ID or content (with time consideration)
+          const uniqueNotifications = transformedNotifications.filter((notification, index, self) => {
+            const thirtySecondsAgo = Date.now() - 30000;
+
+            return index === self.findIndex(n => {
+              // Exact ID match (fastest check)
+              if (n.id === notification.id) return true;
+
+              // Content-based match for similar activities within time window
+              if (n.message === notification.message &&
+                  n.title === notification.title &&
+                  n.type === notification.type) {
+
+                // Check if activities are within 30 seconds of each other
+                const timeDiff = Math.abs(new Date(n.timestamp) - new Date(notification.timestamp));
+                return timeDiff < 30000; // 30 seconds
+              }
+
+              return false;
+            });
+          });
 
           setNotifications(uniqueNotifications);
         } else {
@@ -189,7 +206,11 @@ const Notifications = () => {
     const matchesSearch = notification.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          notification.message.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesType = filterType === "All" ||
-                       (filterType === "invitation" && notification.activityData?.type === 'invitation_sent') ||
+                       (filterType === "invitation" && notification.activityData?.type === 'invitation_sent' &&
+                        notification.activityData?.metadata?.invitationId &&
+                        !notification.activityData?.metadata?.isSenderActivity &&
+                        notification.activityData?.type !== 'invitation_accepted' &&
+                        notification.activityData?.type !== 'invitation_declined') ||
                        notification.type === filterType;
     return matchesSearch && matchesType;
   });
@@ -276,14 +297,26 @@ const Notifications = () => {
 
         if (notificationsResponse.success) {
           const transformedNotifications = notificationsResponse.data.map(transformActivityToNotification);
-          const uniqueNotifications = transformedNotifications.filter((notification, index, self) =>
-            index === self.findIndex(n =>
-              n.id === notification.id ||
-              (n.message === notification.message &&
-               n.title === notification.title &&
-               n.type === notification.type)
-            )
-          );
+          const uniqueNotifications = transformedNotifications.filter((notification, index, self) => {
+            const thirtySecondsAgo = Date.now() - 30000;
+
+            return index === self.findIndex(n => {
+              // Exact ID match (fastest check)
+              if (n.id === notification.id) return true;
+
+              // Content-based match for similar activities within time window
+              if (n.message === notification.message &&
+                  n.title === notification.title &&
+                  n.type === notification.type) {
+
+                // Check if activities are within 30 seconds of each other
+                const timeDiff = Math.abs(new Date(n.timestamp) - new Date(notification.timestamp));
+                return timeDiff < 30000; // 30 seconds
+              }
+
+              return false;
+            });
+          });
           setNotifications(uniqueNotifications);
         }
 
@@ -331,14 +364,26 @@ const Notifications = () => {
 
         if (notificationsResponse.success) {
           const transformedNotifications = notificationsResponse.data.map(transformActivityToNotification);
-          const uniqueNotifications = transformedNotifications.filter((notification, index, self) =>
-            index === self.findIndex(n =>
-              n.id === notification.id ||
-              (n.message === notification.message &&
-               n.title === notification.title &&
-               n.type === notification.type)
-            )
-          );
+          const uniqueNotifications = transformedNotifications.filter((notification, index, self) => {
+            const thirtySecondsAgo = Date.now() - 30000;
+
+            return index === self.findIndex(n => {
+              // Exact ID match (fastest check)
+              if (n.id === notification.id) return true;
+
+              // Content-based match for similar activities within time window
+              if (n.message === notification.message &&
+                  n.title === notification.title &&
+                  n.type === notification.type) {
+
+                // Check if activities are within 30 seconds of each other
+                const timeDiff = Math.abs(new Date(n.timestamp) - new Date(notification.timestamp));
+                return timeDiff < 30000; // 30 seconds
+              }
+
+              return false;
+            });
+          });
           setNotifications(uniqueNotifications);
         }
 
@@ -379,10 +424,14 @@ const Notifications = () => {
   const handleInvitationClick = async (notification) => {
     console.log('Invitation click - notification:', notification);
 
-    // Handle clicks for any invitation-related activities that have invitationId
+    // Handle clicks for invitation activities that have invitationId AND are for the receiver AND are not response activities
     if (notification.type !== 'invitation' ||
         !notification.activityData?.type?.includes('invitation') ||
-        !notification.activityData?.metadata?.invitationId) {
+        !notification.activityData?.metadata?.invitationId ||
+        notification.activityData?.metadata?.isSenderActivity ||
+        notification.activityData?.type === 'invitation_accepted' ||
+        notification.activityData?.type === 'invitation_declined') {
+      // This is either not an invitation, sender's record, or a response activity (not actionable)
       markNotificationAsRead(notification.id);
       return;
     }
