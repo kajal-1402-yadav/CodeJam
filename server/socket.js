@@ -62,14 +62,13 @@ const socketHandler = (io) => {
                         const room = await Room.findById(roomId).select('name');
                         const roomName = room?.name || 'Unknown Room';
 
-                        // Check if a join activity for this user in this room already exists today
-                        const today = new Date();
-                        today.setHours(0, 0, 0, 0);
+                        // Check if a join activity for this user in this room already exists in the last hour
+                        const oneHourAgo = new Date(Date.now() - 3600000);
                         const existingJoinActivity = await Activity.findOne({
                             room: roomId,
                             user: user._id,
                             type: 'user_joined',
-                            createdAt: { $gte: today }
+                            createdAt: { $gte: oneHourAgo }
                         });
 
                         if (!existingJoinActivity) {
@@ -282,13 +281,13 @@ const socketHandler = (io) => {
                             const roomName = room?.name || 'Unknown Room';
 
                             if (file) {
-                                // Check if a file edit activity for this file already exists in the last minute
-                                const oneMinuteAgo = new Date(Date.now() - 60000);
+                                // Check if a file edit activity for this file already exists in the last 30 seconds
+                                const thirtySecondsAgo = new Date(Date.now() - 30000);
                                 const existingFileEditActivity = await Activity.findOne({
                                     room: roomId,
                                     'metadata.fileId': fileId,
                                     type: 'file_edited',
-                                    createdAt: { $gte: oneMinuteAgo }
+                                    createdAt: { $gte: thirtySecondsAgo }
                                 });
 
                                 if (!existingFileEditActivity) {
@@ -335,13 +334,13 @@ const socketHandler = (io) => {
                     // Get user info from socket
                     const user = socket.user || { username: 'User', _id: null };
 
-                    // Check if a file deletion activity for this file already exists in the last minute
-                    const oneMinuteAgo = new Date(Date.now() - 60000);
+                    // Check if a file deletion activity for this file already exists in the last 30 seconds
+                    const thirtySecondsAgo = new Date(Date.now() - 30000);
                     const existingDeleteActivity = await Activity.findOne({
                         room: roomId,
                         'metadata.fileId': fileId,
                         type: 'file_deleted',
-                        createdAt: { $gte: oneMinuteAgo }
+                        createdAt: { $gte: thirtySecondsAgo }
                     });
 
                     if (!existingDeleteActivity) {
@@ -389,13 +388,13 @@ const socketHandler = (io) => {
                     // Get user info from socket
                     const user = socket.user || { username: 'User', _id: null };
 
-                    // Check if a file rename activity for this file already exists in the last minute
-                    const oneMinuteAgo = new Date(Date.now() - 60000);
+                    // Check if a file rename activity for this file already exists in the last 30 seconds
+                    const thirtySecondsAgo = new Date(Date.now() - 30000);
                     const existingRenameActivity = await Activity.findOne({
                         room: roomId,
                         'metadata.fileId': fileId,
                         type: 'file_renamed',
-                        createdAt: { $gte: oneMinuteAgo }
+                        createdAt: { $gte: thirtySecondsAgo }
                     });
 
                     if (!existingRenameActivity) {
@@ -511,13 +510,13 @@ const socketHandler = (io) => {
                     const room = await Room.findById(roomId).select('name');
                     const roomName = room?.name || 'Unknown Room';
 
-                    // Check if a code execution activity for this file already exists in the last minute
-                    const oneMinuteAgo = new Date(Date.now() - 60000);
+                    // Check if a code execution activity for this file already exists in the last 30 seconds
+                    const thirtySecondsAgo = new Date(Date.now() - 30000);
                     const existingCodeActivity = await Activity.findOne({
                         room: roomId,
                         'metadata.filename': fileName,
                         type: 'code_executed',
-                        createdAt: { $gte: oneMinuteAgo }
+                        createdAt: { $gte: thirtySecondsAgo }
                     });
 
                     if (!existingCodeActivity) {

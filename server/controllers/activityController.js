@@ -121,14 +121,16 @@ const getRoomActivities = async (req, res) => {
       room: roomId,
       type: {
         $in: [
-          'message_sent',
-          'file_created',
+          // Activity Only (History/Log Feed) - Historical events for tracking
           'file_edited',
+          'message_sent',
+          'code_executed',
+          'room_updated',
+          // Both Activity + Notifications - Important events for both record and alerts
+          'file_created',
           'file_deleted',
           'file_renamed',
-          'code_executed',
           'room_created',
-          'room_updated',
           'room_deleted'
         ]
       },
@@ -136,16 +138,17 @@ const getRoomActivities = async (req, res) => {
     });
 
     // Activities that should only be shown to the specific user (user-specific activities)
+    // Only include user's own join/leave activities for activity history
     const userSpecificActivities = await Activity.find({
       user: req.user._id,
       room: roomId,
       type: {
         $in: [
+          // Both Activity + Notifications - User's own activities should show in their activity feed
           'user_joined',
           'user_left',
-          'invitation_sent',
-          'invitation_accepted',
-          'invitation_declined'
+          'room_created',
+          'room_deleted'
         ]
       },
       _id: { $nin: deletedActivityIds }
@@ -154,17 +157,23 @@ const getRoomActivities = async (req, res) => {
     // Combine both types of activities
     const allActivities = [...roomWideActivities, ...userSpecificActivities];
 
+    // Remove duplicates based on activity ID (backend deduplication)
+    const uniqueActivities = allActivities.filter((activity, index, self) =>
+      index === self.findIndex(a => a._id.toString() === activity._id.toString())
+    );
+
     // Sort by creation date (newest first) and apply pagination
-    const sortedActivities = allActivities.sort((a, b) => b.createdAt - a.createdAt);
+    const sortedActivities = uniqueActivities.sort((a, b) => b.createdAt - a.createdAt);
     const paginatedActivities = sortedActivities.slice(skip, skip + limit);
 
     // Filter by temporary activities if needed
     let filteredActivities = paginatedActivities;
     if (!includeTemporary) {
       const permanentTypes = [
-        'file_created', 'file_edited', 'file_deleted', 'file_renamed',
-        'message_sent', 'code_executed', 'room_created', 'room_updated', 'room_deleted',
-        'invitation_sent', 'invitation_accepted', 'invitation_declined'
+        // Activity Only (History/Log Feed) - Historical events for tracking
+        'file_edited', 'message_sent', 'code_executed', 'room_updated',
+        // Both Activity + Notifications - Important events for both record and alerts
+        'file_created', 'file_deleted', 'file_renamed', 'user_joined', 'user_left', 'room_created', 'room_deleted'
       ];
       filteredActivities = paginatedActivities.filter(activity =>
         permanentTypes.includes(activity.type)
@@ -195,7 +204,7 @@ const getRoomActivities = async (req, res) => {
       isRead: readStatusMap[activity._id.toString()] || false
     }));
 
-    const total = allActivities.length;
+    const total = uniqueActivities.length;
 
     res.status(200).json({
       activities: activitiesWithReadStatus,
@@ -237,12 +246,10 @@ const getAllRoomsActivities = async (req, res) => {
       room: { $in: roomIds },
       type: {
         $in: [
-          'message_sent',
-          'file_created',
-          'file_edited',
-          'file_deleted',
-          'file_renamed',
-          'code_executed'
+          // Activity Only (History/Log Feed) - Historical events for tracking
+          'file_edited', 'message_sent', 'code_executed', 'room_updated',
+          // Both Activity + Notifications - Important events for both record and alerts
+          'file_created', 'file_deleted', 'file_renamed', 'room_created', 'room_deleted'
         ]
       },
       _id: { $nin: deletedActivityIds }
@@ -253,14 +260,8 @@ const getAllRoomsActivities = async (req, res) => {
       user: req.user._id,
       type: {
         $in: [
-          'user_joined',
-          'user_left',
-          'invitation_sent',
-          'invitation_accepted',
-          'invitation_declined',
-          'room_created',
-          'room_updated',
-          'room_deleted'
+          // Both Activity + Notifications - User's own activities should show in their activity feed
+          'user_joined', 'user_left', 'room_created', 'room_deleted'
         ]
       },
       _id: { $nin: deletedActivityIds }
@@ -269,17 +270,23 @@ const getAllRoomsActivities = async (req, res) => {
     // Combine both types of activities
     const allActivities = [...roomWideActivities, ...userSpecificActivities];
 
+    // Remove duplicates based on activity ID (backend deduplication)
+    const uniqueActivities = allActivities.filter((activity, index, self) =>
+      index === self.findIndex(a => a._id.toString() === activity._id.toString())
+    );
+
     // Sort by creation date (newest first) and apply pagination
-    const sortedActivities = allActivities.sort((a, b) => b.createdAt - a.createdAt);
+    const sortedActivities = uniqueActivities.sort((a, b) => b.createdAt - a.createdAt);
     const paginatedActivities = sortedActivities.slice(0, parseInt(limit));
 
     // Filter by temporary activities if needed
     let filteredActivities = paginatedActivities;
     if (!includeTemporary) {
       const permanentTypes = [
-        'file_created', 'file_edited', 'file_deleted', 'file_renamed',
-        'message_sent', 'code_executed', 'room_created', 'room_updated', 'room_deleted',
-        'invitation_sent', 'invitation_accepted', 'invitation_declined'
+        // Activity Only (History/Log Feed) - Historical events for tracking
+        'file_edited', 'message_sent', 'code_executed', 'room_updated',
+        // Both Activity + Notifications - Important events for both record and alerts
+        'file_created', 'file_deleted', 'file_renamed', 'user_joined', 'user_left', 'room_created', 'room_deleted'
       ];
       filteredActivities = paginatedActivities.filter(activity =>
         permanentTypes.includes(activity.type)

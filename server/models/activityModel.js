@@ -61,4 +61,27 @@ activitySchema.index({
   sparse: true
 });
 
+// Add separate index for message deduplication
+activitySchema.index({
+  room: 1,
+  user: 1,
+  type: 1,
+  'metadata.message': 1,
+  createdAt: -1
+}, {
+  unique: false, // Allow multiple messages but help with deduplication queries
+  sparse: true
+});
+
+// Add index for invitation deduplication
+activitySchema.index({
+  room: 1,
+  user: 1,
+  type: 1,
+  'metadata.invitationId': 1
+}, {
+  unique: false, // Allow multiple activities but help with deduplication queries
+  sparse: true
+});
+
 module.exports = mongoose.model('Activity', activitySchema);

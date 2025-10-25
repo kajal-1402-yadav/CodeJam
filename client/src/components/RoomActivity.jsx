@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Activity, Clock, User, FileText, Folder, Users, MessageSquare, Trash2, Edit, Plus, Code } from 'lucide-react';
+import { Activity, MessageSquare, Trash2, Edit, Plus, Code } from 'lucide-react';
 import useAuthContext from '../hooks/useAuthContext';
 import { getActivities, getRoomActivities } from '../services/activityService';
 import { io } from "socket.io-client";
@@ -14,12 +14,54 @@ const RoomActivity = ({ roomId, showAllActivities = false, maxItems = 5 }) => {
     fetchActivities();
   }, [roomId, showAllActivities]);
 
-  // Socket connection for real-time room deletion updates
+  // Socket connection for real-time activity updates
   useEffect(() => {
-    if (!showAllActivities) return; // Only listen for room deletion events when showing all activities
+    if (!showAllActivities) return; // Only listen for real-time updates when showing all activities
 
     console.log('Setting up socket connection for room activity updates');
     const socket = io('http://localhost:4000');
+
+    // Listen for new activities and add them to the list (with deduplication)
+    socket.on('activityCreated', (newActivity) => {
+      console.log('Received new activity:', newActivity);
+
+      // Check if this activity should be shown in the activity feed
+      const shouldShowInFeed = [
+        'file_created', 'file_deleted', 'file_renamed', 'file_edited',
+        'message_sent', 'code_executed', 'user_joined', 'user_left',
+        'room_created', 'room_updated', 'room_deleted'
+      ].includes(newActivity.type);
+
+      if (shouldShowInFeed) {
+        setActivities(prev => {
+          // Check if this activity already exists to prevent duplicates
+          const exists = prev.some(activity => {
+            // Exact ID match (fastest check)
+            if (activity._id === newActivity._id) return true;
+
+            // Content-based match for similar activities within time window
+            if (activity.description === newActivity.description &&
+                activity.user?._id === newActivity.user?._id &&
+                activity.room?._id === newActivity.room?._id &&
+                activity.type === newActivity.type) {
+
+              // Check if activities are within 30 seconds of each other
+              const timeDiff = Math.abs(new Date(activity.createdAt) - new Date(newActivity.createdAt));
+              return timeDiff < 30000; // 30 seconds
+            }
+
+            return false;
+          });
+
+          if (exists) {
+            return prev; // Don't add duplicate
+          }
+
+          // Add new activity and keep only the specified max items
+          return [newActivity, ...prev.slice(0, maxItems - 1)];
+        });
+      }
+    });
 
     // Listen for room deletion events and filter out activities from deleted rooms
     socket.on('roomDeleted', ({ roomId: deletedRoomId, roomName }) => {
@@ -29,9 +71,11 @@ const RoomActivity = ({ roomId, showAllActivities = false, maxItems = 5 }) => {
 
     return () => {
       console.log('Cleaning up room activity socket connection');
+      socket.off('activityCreated');
+      socket.off('roomDeleted');
       socket.disconnect();
     };
-  }, [showAllActivities]); // Only re-run when showAllActivities changes
+  }, [showAllActivities, maxItems]); // Re-run when showAllActivities or maxItems changes
 
   const fetchActivities = async () => {
     setIsLoading(true);
@@ -50,7 +94,32 @@ const RoomActivity = ({ roomId, showAllActivities = false, maxItems = 5 }) => {
     }
 
     if (result.success) {
-      setActivities(Array.isArray(result.data) ? result.data : result.data.activities || []);
+      const rawActivities = Array.isArray(result.data) ? result.data : result.data.activities || [];
+
+      // Remove duplicates based on activity ID or content (with time consideration)
+      const uniqueActivities = rawActivities.filter((activity, index, self) => {
+        const thirtySecondsAgo = Date.now() - 30000;
+
+        return index === self.findIndex(a => {
+          // Exact ID match (fastest check)
+          if (a._id === activity._id) return true;
+
+          // Content-based match for similar activities within time window
+          if (a.description === activity.description &&
+              a.user?._id === activity.user?._id &&
+              a.room?._id === activity.room?._id &&
+              a.type === activity.type) {
+
+            // Check if activities are within 30 seconds of each other
+            const timeDiff = Math.abs(new Date(a.createdAt) - new Date(activity.createdAt));
+            return timeDiff < 30000; // 30 seconds
+          }
+
+          return false;
+        });
+      });
+
+      setActivities(uniqueActivities);
     } else {
       console.error('Error fetching activities:', result.error);
       setError(result.error);
@@ -79,13 +148,7 @@ const RoomActivity = ({ roomId, showAllActivities = false, maxItems = 5 }) => {
         return <Edit size={16} className="text-blue-500" />;
       case 'room_deleted':
         return <Trash2 size={16} className="text-red-500" />;
-      case 'invitation_sent':
-        return <User size={16} className="text-blue-500" />;
-      case 'invitation_accepted':
-        return <User size={16} className="text-green-500" />;
-      case 'invitation_declined':
-        return <User size={16} className="text-red-500" />;
-      // Temporary activities (user_joined, user_left) are not shown in history
+      // Invitation activities are not shown in history (handled by NotificationController)
       default:
         return <Activity size={16} className="text-gray-500" />;
     }
@@ -108,9 +171,14 @@ const RoomActivity = ({ roomId, showAllActivities = false, maxItems = 5 }) => {
 
   const displayActivities = activities
     .filter(activity => {
-      // Only show permanent activities in history, not temporary ones
-      const temporaryTypes = ['user_joined', 'user_left'];
-      return !temporaryTypes.includes(activity.type);
+      // Only exclude invitation-related activities since they're handled by NotificationController
+      // user_joined and user_left should show in activity feed as they're "Both Activity + Notifications"
+      const excludedTypes = [
+        'invitation_sent',
+        'invitation_accepted',
+        'invitation_declined'
+      ];
+      return !excludedTypes.includes(activity.type);
     })
     .slice(0, maxItems);
 
