@@ -1,12 +1,13 @@
 import { X, Users, User, Calendar, MessageSquare, Check, X as XIcon, Loader2 } from 'lucide-react';
 
-const InvitationModal = ({ 
-  isOpen, 
-  onClose, 
-  invitation, 
-  onAccept, 
-  onDecline, 
-  isProcessing = false 
+const InvitationModal = ({
+  isOpen,
+  onClose,
+  invitation,
+  onAccept,
+  onDecline,
+  isAccepting = false,
+  isDeclining = false
 }) => {
   if (!isOpen || !invitation) return null;
 
@@ -78,7 +79,7 @@ const InvitationModal = ({
             </div>
             <button
               onClick={onClose}
-              disabled={isProcessing}
+              disabled={isAccepting || isDeclining}
               className="p-1.5 rounded-md hover:bg-gray-800/50 transition-colors text-gray-400 hover:text-gray-200"
               aria-label="Close"
             >
@@ -149,10 +150,10 @@ const InvitationModal = ({
              <div className="flex items-center justify-end space-x-3">
                <button
                  onClick={onDecline}
-                 disabled={isProcessing || isExpired()}
+                 disabled={isAccepting || isDeclining || isExpired()}
                  className="px-4 py-2 text-sm font-medium text-gray-300 bg-gray-800 rounded-lg hover:bg-gray-700/80 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                >
-                 {isProcessing ? (
+                 {isDeclining ? (
                    <Loader2 size={16} className="animate-spin" />
                  ) : (
                    <XIcon size={16} />
@@ -161,10 +162,10 @@ const InvitationModal = ({
                </button>
                <button
                  onClick={onAccept}
-                 disabled={isProcessing || isExpired()}
+                 disabled={isAccepting || isDeclining || isExpired()}
                  className="px-4 py-2 text-sm font-medium text-white bg-[#A78BFA] rounded-lg hover:bg-[#8B5CF6] transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                >
-                 {isProcessing ? (
+                 {isAccepting ? (
                    <Loader2 size={16} className="animate-spin" />
                  ) : (
                    <Check size={16} />

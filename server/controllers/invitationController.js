@@ -258,17 +258,17 @@ const respondToInvitation = async (req, res) => {
             // 1. Activity for the RECEIVER (invitee) - confirmation
             let receiverActivity;
             if (response === 'accept') {
-                // For accepted invitations, create a user_joined activity for the receiver
+                // For accepted invitations, create invitation_accepted activity for the receiver
                 receiverActivity = await Activity.create({
-                    type: 'user_joined',
+                    type: 'invitation_accepted',
                     user: userId, // RECEIVER gets the activity
                     room: invitation.room,
-                    description: `You joined room "${roomData.name}" successfully`,
+                    description: `You accepted an invitation to join "${roomData.name}"`,
                     metadata: {
                         roomName: roomData.name,
                         invitationId: invitationId,
                         response: response,
-                        joinedViaInvitation: true // Flag to indicate this was via invitation
+                        acceptedInvitation: true // Flag to indicate invitation was accepted
                     }
                 });
             } else {
