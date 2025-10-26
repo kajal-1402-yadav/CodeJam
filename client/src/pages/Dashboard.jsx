@@ -1,31 +1,50 @@
 import { useState, useEffect } from "react";
-import { Users, FilePlus, Bell, Plus, Search, Loader2, X, ExternalLink, Copy, Edit, Trash2, MoreHorizontal } from "lucide-react";
+import { Users, Bell, Plus, Search, Loader2, X, ExternalLink, Copy, Edit, Trash2, MoreHorizontal, Home, UserCheck, LogIn } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import useAuthContext from "../hooks/useAuthContext";
 import useSocket from "../hooks/useSocket";
 import { useNavigate } from "react-router-dom";
 import { getAllRooms, getRoomById, createRoom, updateRoom, deleteRoom } from "../services/roomService";
-import { getFilesByRoom } from "../services/fileService";
+import { getFilesByRoom, getMyFiles } from "../services/fileService";
 import { getActivities } from "../services/activityService";
 
-const QuickStats = ({ rooms = [], filesCount = 0 }) => {
-  const totalCollaborators = rooms.reduce((sum, room) => sum + (room.participants?.length || 0), 0);
+const QuickStats = ({ rooms = [], filesCount = 0, user, activities = [] }) => {
+  // Calculate active rooms (rooms with activity in last 7 days)
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+  const activeRooms = new Set();
+  activities.forEach(activity => {
+    if (new Date(activity.createdAt) >= sevenDaysAgo) {
+      activeRooms.add(activity.room?._id || activity.room);
+    }
+  });
+
+  // Calculate unique collaborators across all rooms
+  const allCollaborators = new Set();
+  rooms.forEach(room => {
+    if (room.participants && Array.isArray(room.participants)) {
+      room.participants.forEach(participant => {
+        allCollaborators.add(participant._id || participant);
+      });
+    }
+  });
 
   const stats = [
     {
       label: "Active Rooms",
-      value: rooms.length,
-      icon: Users
-    },
-    {
-      label: "Collaborators",
-      value: totalCollaborators,
-      icon: Users
+      value: activeRooms.size,
+      icon: Home
     },
     {
       label: "Files Shared",
       value: filesCount,
-      icon: FilePlus
+      icon: LogIn
+    },
+    {
+      label: "Collaborators Connected",
+      value: allCollaborators.size,
+      icon: Users
     }
   ];
   return (
@@ -150,6 +169,7 @@ const Dashboard = () => {
   // New state for real-time data
   const [filesCount, setFilesCount] = useState(0);
   const [activities, setActivities] = useState([]);
+  const [userFiles, setUserFiles] = useState([]);
 
   // Toast state for copy notifications
   const [showToast, setShowToast] = useState(false);
@@ -173,14 +193,14 @@ const Dashboard = () => {
     fetchRooms();
   }, []);
 
-  // Fetch files count from all user's rooms
+  // Fetch files uploaded by user
   useEffect(() => {
     if (user) {
-      fetchFilesCount();
+      fetchUserFiles();
     }
   }, [user]);
 
-  // Fetch recent activities
+  // Fetch recent activities (more for active rooms calculation)
   useEffect(() => {
     if (user) {
       fetchActivities();
@@ -236,8 +256,8 @@ const Dashboard = () => {
             return prev; // Don't add duplicate
           }
 
-          // Add new activity and keep only latest 10
-          return [newActivity, ...prev.slice(0, 9)];
+          // Add new activity and keep only latest 5
+          return [newActivity, ...prev.slice(0, 4)];
         });
       });
 
@@ -290,42 +310,36 @@ const Dashboard = () => {
     };
   }, [socket, user]);
 
-  const fetchFilesCount = async () => {
+  const fetchUserFiles = async () => {
     try {
-      // Get all user's rooms first
-      const roomsResult = await getAllRooms();
+      const result = await getMyFiles();
 
-      if (!roomsResult.success) {
-        console.error('Failed to fetch rooms for file count:', roomsResult.error);
-        return;
+      if (result.success) {
+        setUserFiles(result.data);
+        setFilesCount(result.data.length);
+      } else {
+        console.error('Error fetching user files:', result.error);
       }
-
-      const userRooms = roomsResult.data;
-      let totalFiles = 0;
-
-      // Fetch file count for each room
-      for (const room of userRooms) {
-        const filesResult = await getFilesByRoom(room._id);
-        
-        if (filesResult.success) {
-          totalFiles += filesResult.data.length;
-        } else {
-          console.error(`Error fetching files for room ${room._id}:`, filesResult.error);
-        }
-      }
-
-      setFilesCount(totalFiles);
     } catch (error) {
-      console.error('Error fetching files count:', error);
+      console.error('Error fetching user files:', error);
     }
   };
 
   const fetchActivities = async () => {
-    const result = await getActivities({ limit: 10 });
+    // Get more activities for active rooms calculation (last 7 days worth)
+    const result = await getActivities({ limit: 100 });
 
     if (result.success) {
+      // Filter activities to last 7 days for active rooms calculation
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+      const recentActivities = result.data.filter(activity =>
+        new Date(activity.createdAt) >= sevenDaysAgo
+      );
+
       // Filter out notification-only activities, keep only activity feed items
-      const activityFeedActivities = result.data.filter(activity => {
+      const activityFeedActivities = recentActivities.filter(activity => {
         const activityOnlyTypes = [
           // Activity Only (History/Log Feed) - Historical events for tracking
           'file_edited',
@@ -347,7 +361,7 @@ const Dashboard = () => {
         return activityOnlyTypes.includes(activity.type) || bothTypes.includes(activity.type);
       });
 
-      // Remove duplicates based on activity ID or content
+      // Remove duplicates and limit to 5 for display
       const uniqueActivities = activityFeedActivities.filter((activity, index, self) => {
         const thirtySecondsAgo = Date.now() - 30000;
 
@@ -369,7 +383,7 @@ const Dashboard = () => {
         });
       });
 
-      setActivities(uniqueActivities);
+      setActivities(uniqueActivities.slice(0, 5));
     } else {
       console.error('Error fetching activities:', result.error);
     }
@@ -396,39 +410,6 @@ const Dashboard = () => {
   };
 
   const filteredRooms = rooms.filter(room =>
-    room.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (room.createdBy && room.createdBy.username && room.createdBy.username.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
-
-  // Filter rooms created by the user
-  const myCreatedRooms = rooms.filter(room =>
-    room.createdBy && String(room.createdBy._id) === String(user._id) &&
-    (room.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-     (room.createdBy && room.createdBy.username && room.createdBy.username.toLowerCase().includes(searchQuery.toLowerCase())))
-  );
-
-  // Filter rooms joined by the user (rooms where user has been active, not just currently participating)
-  const myJoinedRooms = rooms.filter(room => {
-    // User must not be the creator
-    if (!room.createdBy || String(room.createdBy._id) === String(user._id)) {
-      return false;
-    }
-
-    // Check if user is currently a participant
-    const isCurrentParticipant = Array.isArray(room.participants) && room.participants.some(participant => String(participant._id) === String(user._id));
-
-    // If user is currently a participant, include the room
-    if (isCurrentParticipant) {
-      return true;
-    }
-
-    // Check if user has any activity in the room (messages, file edits, joins, etc.)
-    // For now, we'll fall back to current participant check, but this could be enhanced
-    // to check activity history in the future
-
-    // For now, we'll keep the current logic but add a comment about potential future enhancement
-    return isCurrentParticipant;
-  }).filter(room =>
     room.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (room.createdBy && room.createdBy.username && room.createdBy.username.toLowerCase().includes(searchQuery.toLowerCase()))
   );
@@ -714,7 +695,7 @@ const Dashboard = () => {
           </div>
         </div>
 
-        <QuickStats rooms={rooms} filesCount={filesCount} />
+        <QuickStats rooms={filteredRooms} filesCount={filesCount} user={user} activities={activities} />
         
         {/* Error Message */}
         {error && (
@@ -731,17 +712,19 @@ const Dashboard = () => {
 
         <section className="mt-10">
           <div className="flex items-center justify-between mb-5">
-            <h2 className="text-2xl font-bold text-white">My Rooms</h2>
-            {searchQuery && (
-              <div className="text-sm text-gray-400">
-                {myCreatedRooms.length} room{myCreatedRooms.length !== 1 ? 's' : ''} found
-              </div>
-            )}
+            <h2 className="text-2xl font-bold text-white">Recent Rooms</h2>
+            <button
+              onClick={() => navigate('/rooms')}
+              className="px-4 py-2 bg-[#A78BFA] text-[#1E1E1E] rounded-lg hover:bg-[#A78BFA]/90 transition-colors text-sm font-medium flex items-center gap-2"
+            >
+              View All Rooms
+              <ExternalLink size={16} />
+            </button>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {myCreatedRooms.map((room) => (
-              <RoomCard 
-                key={room._id} 
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredRooms.slice(0, 3).map((room) => (
+              <RoomCard
+                key={room._id}
                 room={{
                   ...room,
                   participants: Array.isArray(room.participants) ? room.participants.length : 0,
@@ -755,7 +738,7 @@ const Dashboard = () => {
               />
             ))}
           </div>
-          {myCreatedRooms.length === 0 && !isLoading && (
+          {filteredRooms.length === 0 && !isLoading && (
             <div className="text-center py-12">
               <Users className="mx-auto text-gray-500 mb-4" size={48} />
               {searchQuery ? (
@@ -780,66 +763,27 @@ const Dashboard = () => {
         </section>
 
         <section className="mt-12">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-2xl font-bold text-white">My Joined Rooms</h2>
-            {searchQuery && (
-              <div className="text-sm text-gray-400">
-                {myJoinedRooms.length} room{myJoinedRooms.length !== 1 ? 's' : ''} found
-              </div>
-            )}
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {myJoinedRooms.map((room) => (
-              <RoomCard
-                key={room._id}
-                room={{
-                  ...room,
-                  participants: Array.isArray(room.participants) ? room.participants.length : 0,
-                  createdAt: new Date(room.createdAt).toLocaleDateString(),
-                  creator: room.createdBy ? room.createdBy.username : 'Unknown'
-                }}
-                onJoin={handleJoinRoom}
-                onEdit={handleEditRoom}
-                onDelete={handleDeleteRoom}
-                onCopy={handleCopyRoomLink}
-                user={user}
-              />
-            ))}
-          </div>
-          {myJoinedRooms.length === 0 && !isLoading && (
-            <div className="text-center py-12">
-              <Users className="mx-auto text-gray-500 mb-4" size={48} />
-              {searchQuery ? (
-                <>
-                  <p className="text-gray-500 text-lg">No joined rooms found for "{searchQuery}"</p>
-                  <p className="text-gray-400 text-sm mt-2">Try a different search term</p>
-                  <button
-                    onClick={() => setSearchQuery("")}
-                    className="mt-4 px-4 py-2 bg-[#A78BFA] text-[#1E1E1E] rounded-lg hover:bg-[#A78BFA]/90 transition-colors"
-                  >
-                    Clear Search
-                  </button>
-                </>
-              ) : (
-                <>
-                  <p className="text-gray-500 text-lg">No joined rooms yet</p>
-                  <p className="text-gray-400 text-sm mt-2">Join rooms using the "Join Room" button above</p>
-                </>
-              )}
-            </div>
-          )}
-        </section>
-
-        <section className="mt-12">
           <h2 className="text-2xl font-bold text-white mb-5">Recent Activity</h2>
           <div className="space-y-3">
             {activities.length > 0 ? (
               activities.map((activity, i) => (
-                <div key={activity._id || i} className="flex justify-between items-center p-4 rounded-lg bg-[#1E1E1E]/50 border border-gray-800">
-                  <span className="text-white font-medium">{activity.description}</span>
-                  <span className="text-gray-500 text-sm">
-                    {activity.createdAt ? new Date(activity.createdAt).toLocaleDateString() : 'Just now'}
-                  </span>
+                <div key={activity._id || i} className="p-4 rounded-lg bg-[#1E1E1E]/50 border border-gray-800">
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="text-white font-medium">
+                      {activity.user && String(activity.user._id) === String(user._id)
+                        ? activity.description.replace(activity.user.username, 'You')
+                        : activity.description
+                      }
+                    </span>
+                    <span className="text-gray-500 text-sm">
+                      {activity.createdAt ? new Date(activity.createdAt).toLocaleString() : 'Just now'}
+                    </span>
+                  </div>
+                  {activity.room && (
+                    <div className="text-[#A78BFA] text-sm font-medium">
+                      in {activity.room.name}
+                    </div>
+                  )}
                 </div>
               ))
             ) : (

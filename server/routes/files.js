@@ -6,13 +6,17 @@ const {
     getFileById,
     getFileByName,
     updateFile,
-    deleteFile
+    deleteFile,
+    getMyFiles
 } = require('../controllers/fileController');
 
 const requireAuth = require('../middleware/requireAuth');
 
 // All file routes require authentication
 router.use(requireAuth);
+
+// Get files uploaded by current user (must come before parameterized routes)
+router.get('/my-files', getMyFiles);
 
 // upload a new file in a room
 router.post('/:roomId/files', uploadFile);

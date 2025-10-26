@@ -48,13 +48,13 @@ export const updateFile = async (roomId, fileId, updates) => {
   }
 };
 
-// Delete a file
-export const deleteFile = async (roomId, fileId) => {
+// Get files uploaded by current user across all rooms
+export const getMyFiles = async () => {
   try {
-    const response = await api.delete(`/api/rooms/${roomId}/files/${fileId}`);
+    const response = await api.get('/api/files/my-files');
     return { success: true, data: response.data };
   } catch (error) {
-    console.error('Failed to delete file:', error);
+    console.error('Failed to get user files:', error);
     return { success: false, error: error.response?.data?.error || error.message };
   }
 };

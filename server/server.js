@@ -40,7 +40,7 @@ app.use(express.json())
 // routes
 app.use('/api/auth', authRoutes)
 app.use('/api/rooms', chatRoutes)
-app.use('/api/rooms', fileRoutes)
+app.use('/api/files', fileRoutes)
 app.use('/api/rooms', folderRoutes)
 app.use('/api/rooms', roomRoutes)
 app.use('/api/users', userRoutes)
