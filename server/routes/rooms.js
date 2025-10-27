@@ -9,6 +9,8 @@ const {
     deleteRoom
 } = require("../controllers/roomController")
 
+const { sendInvitation } = require("../controllers/invitationController")
+
 const requireAuth = require('../middleware/requireAuth')
 
 // All room routes require authentication
@@ -29,6 +31,7 @@ router.put("/:roomId", updateRoom);
 // delete a specific room
 router.delete('/:roomId', deleteRoom)
 
-// apply a template to a room
+router.post("/:roomId/invite", sendInvitation);
+
 
 module.exports = router;

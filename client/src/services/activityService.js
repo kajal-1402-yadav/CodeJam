@@ -22,8 +22,8 @@ export const getRoomActivities = async (roomId, params = {}) => {
   try {
     const queryString = new URLSearchParams(params).toString();
     const url = queryString 
-      ? `/api/activities/room/${roomId}?${queryString}` 
-      : `/api/activities/room/${roomId}`;
+      ? `/api/rooms/${roomId}/activities?${queryString}` 
+      : `/api/rooms/${roomId}/activities`;
     const response = await api.get(url);
     return { success: true, data: response.data };
   } catch (error) {

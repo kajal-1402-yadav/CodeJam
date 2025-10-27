@@ -38,17 +38,20 @@ export const deleteUserAccount = async () => {
 };
 
 // Send invitation to a user for a room
-export const sendInvitation = async (roomId, invitedUserEmail, message) => {
+export const sendInvitation = async (roomId, invitedUserEmail, message = "") => {
   try {
-    const response = await api.post('/api/invitations/send', {
-      roomId,
-      invitedUserEmail,
-      message
+    const response = await api.post(`/api/rooms/${roomId}/invite`, {
+      invitedUserEmail, // backend expects this
+      message,
     });
-    return { success: true, data: response.data };
+
+    return response.data;
   } catch (error) {
-    console.error('Failed to send invitation:', error);
-    return { success: false, error: error.response?.data?.error || error.message };
+    console.error("Failed to invite collaborator:", error);
+    return {
+      success: false,
+      error: error.response?.data?.error || "Failed to send invitation",
+    };
   }
 };
 

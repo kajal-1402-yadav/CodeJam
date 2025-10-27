@@ -45,28 +45,11 @@ const createRoom = async (req, res) => {
             createdBy: req.user._id
         });
 
-        // Create activity for room creation
-
-        // Generate enhanced description
-        const generateActivityDescription = (type, metadata, userName) => {
-            const { roomName } = metadata || {};
-            switch (type) {
-                case 'room_created':
-                    return `${userName} created room "${roomName}"`;
-                case 'room_updated':
-                    return `${userName} updated room "${roomName}"`;
-                case 'room_deleted':
-                    return `${userName} deleted room "${roomName}"`;
-                default:
-                    return `${userName} performed ${type}`;
-            }
-        };
-
         const activity = await Activity.create({
             room: room._id,
             user: req.user._id,
             type: 'room_created',
-            description: generateActivityDescription('room_created', { roomName: name }, req.user.username),
+            description: `${req.user.username} created room "${name}"`,
             metadata: { roomName: name }
         });
 
@@ -181,10 +164,12 @@ const updateRoom = async (req, res) => {
             room: req.params.roomId,
             user: req.user._id,
             type: 'room_updated',
-            description: `${req.user.username} updated room settings`,
+            description: req.body.name
+                ? `${req.user.username} changed room name to "${updatedRoom.name}"`
+                : `${req.user.username} updated room settings in "${updatedRoom.name}"`,
             metadata: {
                 roomName: updatedRoom.name,
-                updateDetails: 'room settings',
+                updateDetails: req.body.name ? `changed room name to "${updatedRoom.name}"` : 'updated room settings',
                 nameChanged: !!req.body.name
             }
         });

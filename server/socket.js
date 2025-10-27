@@ -295,7 +295,7 @@ const socketHandler = (io) => {
                                         room: roomId,
                                         user: userId || (socket.user && socket.user._id) || (file.uploadedBy && file.uploadedBy._id) || null,
                                         type: 'file_edited',
-                                        description: `${(file.uploadedBy && file.uploadedBy.username) || 'User'} edited file in ${roomName}`,
+                                        description: `${(file.uploadedBy && file.uploadedBy.username) || 'User'} edited file "${file.filename}" in ${roomName}`,
                                         metadata: {
                                             filename: file.filename,
                                             roomName,

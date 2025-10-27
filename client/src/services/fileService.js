@@ -7,7 +7,7 @@ import api from '../utils/axiosConfig';
 // Get all files in a room
 export const getFilesByRoom = async (roomId) => {
   try {
-    const response = await api.get(`/api/rooms/${roomId}/files`);
+    const response = await api.get(`/api/files/${roomId}/files`);
     return { success: true, data: response.data };
   } catch (error) {
     console.error('Failed to get files:', error);
@@ -18,7 +18,7 @@ export const getFilesByRoom = async (roomId) => {
 // Get a specific file by ID
 export const getFileById = async (roomId, fileId) => {
   try {
-    const response = await api.get(`/api/rooms/${roomId}/files/${fileId}`);
+    const response = await api.get(`/api/files/${roomId}/files/${fileId}`);
     return { success: true, data: response.data };
   } catch (error) {
     console.error('Failed to get file:', error);
@@ -29,7 +29,7 @@ export const getFileById = async (roomId, fileId) => {
 // Create a new file
 export const createFile = async (roomId, fileData) => {
   try {
-    const response = await api.post(`/api/rooms/${roomId}/files`, fileData);
+    const response = await api.post(`/api/files/${roomId}/files`, fileData);
     return { success: true, data: response.data };
   } catch (error) {
     console.error('Failed to create file:', error);
@@ -40,10 +40,21 @@ export const createFile = async (roomId, fileData) => {
 // Update file content or metadata
 export const updateFile = async (roomId, fileId, updates) => {
   try {
-    const response = await api.put(`/api/rooms/${roomId}/files/${fileId}`, updates);
+    const response = await api.put(`/api/files/${roomId}/files/${fileId}`, updates);
     return { success: true, data: response.data };
   } catch (error) {
     console.error('Failed to update file:', error);
+    return { success: false, error: error.response?.data?.error || error.message };
+  }
+};
+
+// Delete a file
+export const deleteFile = async (roomId, fileId) => {
+  try {
+    const response = await api.delete(`/api/files/${roomId}/files/${fileId}`);
+    return { success: true, data: response.data };
+  } catch (error) {
+    console.error('Failed to delete file:', error);
     return { success: false, error: error.response?.data?.error || error.message };
   }
 };

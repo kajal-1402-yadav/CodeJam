@@ -4,6 +4,15 @@ import useAuthContext from '../hooks/useAuthContext';
 import { getActivities, getRoomActivities } from '../services/activityService';
 import { io } from "socket.io-client";
 
+// Helper function to capitalize first letter of each word
+const capitalizeFirstLetters = (str) => {
+  return str
+    .toLowerCase()
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
+
 const RoomActivity = ({ roomId, showAllActivities = false, maxItems = 5 }) => {
   const { user } = useAuthContext();
   const [activities, setActivities] = useState([]);
@@ -165,10 +174,6 @@ const RoomActivity = ({ roomId, showAllActivities = false, maxItems = 5 }) => {
     return `${Math.floor(diffInSeconds / 86400)}d ago`;
   };
 
-  const toTitleCase = (str) => {
-    return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
-  };
-
   const displayActivities = activities
     .filter(activity => {
       // Only exclude invitation-related activities since they're handled by NotificationController
@@ -221,7 +226,12 @@ const RoomActivity = ({ roomId, showAllActivities = false, maxItems = 5 }) => {
       {displayActivities.map((activity) => (
         <div key={activity._id} className="p-4 rounded-lg bg-[#1E1E1E]/50 border border-gray-800">
           <div className="flex justify-between items-start mb-2">
-            <span className="text-white font-medium">{toTitleCase(activity.description.replace(/ in \w+$/, ''))}</span>
+            <span className="text-white font-medium">
+              {activity.user && String(activity.user._id) === String(user._id)
+                ? capitalizeFirstLetters(activity.description.replace(activity.user.username, 'You'))
+                : capitalizeFirstLetters(activity.description)
+              }
+            </span>
             <span className="text-gray-500 text-sm">
               {formatTimeAgo(activity.createdAt)}
             </span>

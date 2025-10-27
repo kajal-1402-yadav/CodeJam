@@ -1,19 +1,59 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Search, Users, Calendar, MoreHorizontal, MoreVertical, Edit, Trash2, Copy, ExternalLink, Loader2, X } from "lucide-react";
+import { Plus, Search, Users, Calendar, MoreHorizontal, Edit, Trash2, Copy, ExternalLink, Loader2, X, Activity } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import RoomActivity from "../components/RoomActivity";
 import useAuthContext from "../hooks/useAuthContext";
 import { io } from "socket.io-client";
-import { getAllRooms, createRoom, updateRoom, deleteRoom } from "../services/roomService";
+import { getAllRooms, getRoomById, createRoom, updateRoom, deleteRoom } from "../services/roomService";
 
-const RoomCard = ({ room, onEdit, onDelete, onJoin, onCopy, user }) => {
+// Constants
+const DUPLICATE_TIME_WINDOW = 30000; // 30 seconds for activity deduplication
+
+/**
+ * Helper Functions
+ * Utility functions for room filtering and validation
+ */
+const isValidRoomName = (name, rooms, excludeRoomId = null) => {
+  if (!name || !name.trim()) return false;
+
+  const trimmedName = name.trim().toLowerCase();
+  return !rooms.some(room =>
+    room._id !== excludeRoomId && room.name.toLowerCase() === trimmedName
+  );
+};
+
+const filterRoomsBySearch = (rooms, searchQuery) => {
+  if (!searchQuery) return rooms;
+
+  const query = searchQuery.toLowerCase();
+  return rooms.filter(room =>
+    room.name.toLowerCase().includes(query) ||
+    (room.createdBy && room.createdBy.username && room.createdBy.username.toLowerCase().includes(query))
+  );
+};
+
+const formatRoomDate = (dateString) => {
+  return new Date(dateString).toLocaleDateString();
+};
+
+const formatParticipantCount = (participants) => {
+  return Array.isArray(participants) ? participants.length : 0;
+};
+
+/**
+ * Room Card Component
+ * Displays individual room information with management actions
+ */
+const RoomCard = ({ room, onEdit, onDelete, onJoin, onCopy, onShowActivity, user }) => {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef(null);
+  const buttonRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (menuRef.current && !menuRef.current.contains(event.target)) {
+      if (menuRef.current && !menuRef.current.contains(event.target) &&
+          buttonRef.current && !buttonRef.current.contains(event.target)) {
         setShowMenu(false);
       }
     };
@@ -28,6 +68,7 @@ const RoomCard = ({ room, onEdit, onDelete, onJoin, onCopy, user }) => {
     <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-5 shadow-md flex flex-col justify-between transform hover:-translate-y-1 transition-transform duration-300 group relative room-card">
       <div className="relative">
         <button
+          ref={buttonRef}
           onClick={() => setShowMenu(!showMenu)}
           className="absolute top-0 right-0 p-1 rounded-full hover:bg-gray-700 transition-colors z-10"
         >
@@ -39,9 +80,8 @@ const RoomCard = ({ room, onEdit, onDelete, onJoin, onCopy, user }) => {
         {room.creator && <p className="text-gray-400 text-sm">Created by: {room.creator}</p>}
         <p className="text-gray-500 text-xs mt-1">Created: {room.createdAt}</p>
 
-        {/* Dropdown Menu */}
         {showMenu && (
-          <div className="absolute top-8 right-0 bg-[#1E1E1E] border border-gray-700 rounded-lg shadow-lg z-20 min-w-[120px]">
+          <div ref={menuRef} className="absolute top-8 right-0 bg-[#1E1E1E] border border-gray-700 rounded-lg shadow-lg z-20 min-w-[120px]">
             {room.createdBy && String(room.createdBy._id) === String(user._id) && (
               <>
                 <button
@@ -66,6 +106,16 @@ const RoomCard = ({ room, onEdit, onDelete, onJoin, onCopy, user }) => {
                 </button>
               </>
             )}
+            <button
+              onClick={() => {
+                onShowActivity(room);
+                setShowMenu(false);
+              }}
+              className="w-full text-left px-3 py-2 text-sm text-blue-400 hover:bg-gray-700 hover:text-blue-300 hover:rounded-lg transition-colors flex items-center gap-2"
+            >
+              <Activity size={14} />
+              View Activity
+            </button>
           </div>
         )}
       </div>
@@ -89,195 +139,163 @@ const RoomCard = ({ room, onEdit, onDelete, onJoin, onCopy, user }) => {
   );
 };
 
+/**
+ * Main Rooms Component
+ * Displays and manages user's created and joined rooms
+ */
 const Rooms = () => {
   const { user } = useAuthContext();
-  const [rooms, setRooms] = useState([]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [isCreating, setIsCreating] = useState(false);
-  const [newRoomName, setNewRoomName] = useState("");
   const navigate = useNavigate();
 
-  // Edit room modal state
+  // Core state management
+  const [rooms, setRooms] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Modal state management
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [newRoomName, setNewRoomName] = useState("");
+
   const [showEditModal, setShowEditModal] = useState(false);
   const [roomToEdit, setRoomToEdit] = useState(null);
   const [editRoomName, setEditRoomName] = useState("");
   const [isEditing, setIsEditing] = useState(false);
 
-  // Delete room modal state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [roomToDelete, setRoomToDelete] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Copy confirmation modal state
   const [showCopyModal, setShowCopyModal] = useState(false);
   const [copiedRoom, setCopiedRoom] = useState(null);
 
-  // Fetch rooms from backend
-  useEffect(() => {
-    fetchRooms();
-  }, []);
+  const [selectedRoomForActivity, setSelectedRoomForActivity] = useState(null);
 
-  // Socket connection for real-time room deletion updates
+  // Socket connection for real-time updates
   useEffect(() => {
-    console.log('Setting up socket connection for real-time room updates');
     const socket = io('http://localhost:4000');
 
-    // Listen for room deletion events
     socket.on('roomDeleted', ({ roomId, roomName }) => {
-      console.log(`Room "${roomName}" was deleted - removing from UI`);
-      // Remove the deleted room from the state
       setRooms(prev => prev.filter(room => String(room._id) !== String(roomId)));
     });
 
-    // When current user joins a room (from another creator), ensure it shows up and update participants count
     socket.on('userJoinedRoom', ({ roomId, room }) => {
       if (room) {
         setRooms(prev => {
           const exists = prev.some(r => String(r._id) === String(room._id));
           if (exists) {
-            console.log('Room already exists in state, updating participants');
             return prev.map(r => String(r._id) === String(room._id) ? room : r);
           } else {
-            console.log('Adding newly joined room to state:', room.name);
             return [room, ...prev];
           }
         });
       }
     });
 
-    // Update participants count if server broadcasts changes
     socket.on('roomParticipantsUpdated', ({ roomId, participants }) => {
       setRooms(prev => prev.map(r => String(r._id) === String(roomId) ? { ...r, participants } : r));
     });
 
-    // Listen for new rooms created (to update UI if needed)
     socket.on('roomCreated', (newRoom) => {
-      console.log('Received roomCreated event:', newRoom);
-      // Only add the room if current user is NOT the creator (since we already added it manually)
-      // and current user is a participant
       if (String(newRoom.createdBy) !== String(user._id) &&
           (Array.isArray(newRoom.participants) && newRoom.participants.some(p => String(p._id) === String(user._id)))) {
         setRooms(prev => {
           const exists = prev.some(r => String(r._id) === String(newRoom._id));
           if (exists) {
-            console.log('Room already exists in state, not adding duplicate');
             return prev;
           }
-          console.log('Adding new room from socket event:', newRoom.name);
           return [newRoom, ...prev];
         });
       }
     });
 
-    // Connection status logging
-    socket.on('connect', () => {
-      console.log('Socket connected successfully');
-    });
-
-    socket.on('disconnect', () => {
-      console.log('Socket disconnected');
-    });
-
     return () => {
-      console.log('Cleaning up socket connection');
       socket.off('roomDeleted');
       socket.off('userJoinedRoom');
       socket.off('roomParticipantsUpdated');
       socket.off('roomCreated');
-      socket.off('connect');
-      socket.off('disconnect');
       socket.disconnect();
     };
-  }, [user]); // Add user as dependency since we use it in the roomCreated check
+  }, [user]);
 
   const fetchRooms = async () => {
     setIsLoading(true);
-    
-    const result = await getAllRooms();
-    
-    if (result.success) {
-      setRooms(result.data);
-    } else {
-      console.error('Error fetching rooms:', result.error);
-      setError(result.error);
+
+    try {
+      const result = await getAllRooms();
+
+      if (result.success) {
+        setRooms(result.data);
+      } else {
+        setError(result.error);
+      }
+    } catch (error) {
+      setError('Failed to load rooms');
     }
-    
+
     setIsLoading(false);
   };
 
-  const filteredRooms = rooms.filter(room =>
-    room.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (room.createdBy && room.createdBy.username && room.createdBy.username.toLowerCase().includes(searchQuery.toLowerCase()))
+  useEffect(() => {
+    fetchRooms();
+  }, []);
+
+  // Room filtering logic
+  const filteredRooms = filterRoomsBySearch(rooms, searchQuery);
+
+  const myCreatedRooms = filteredRooms.filter(room =>
+    room.createdBy && String(room.createdBy._id) === String(user._id)
   );
 
-  // Filter rooms created by the user
-  const myCreatedRooms = rooms.filter(room =>
-    room.createdBy && String(room.createdBy._id) === String(user._id) &&
-    (room.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-     (room.createdBy && room.createdBy.username && room.createdBy.username.toLowerCase().includes(searchQuery.toLowerCase())))
-  );
-
-  // Filter rooms joined by the user (participant but not creator)
-  const myJoinedRooms = rooms.filter(room => {
+  const myJoinedRooms = filteredRooms.filter(room => {
     const isCreator = room.createdBy && String(room.createdBy._id) === String(user._id);
     const isParticipant = Array.isArray(room.participants) && room.participants.some(participant => String(participant._id) === String(user._id));
 
-    return room.createdBy && !isCreator && isParticipant &&
-      (room.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-       (room.createdBy && room.createdBy.username && room.createdBy.username.toLowerCase().includes(searchQuery.toLowerCase())));
+    return room.createdBy && !isCreator && isParticipant;
   });
 
-  const [createError, setCreateError] = useState(""); // Separate error for create modal
+  const [createError, setCreateError] = useState("");
 
+  // Event Handlers
   const handleCreateRoom = async (e) => {
     e.preventDefault();
     if (!newRoomName.trim()) return;
 
-    // Frontend validation: Check if room name already exists in current rooms (case-insensitive)
-    const trimmedName = newRoomName.trim().toLowerCase();
-    const existingRoom = rooms.find(room =>
-      room.name.toLowerCase() === trimmedName
-    );
-
-    if (existingRoom) {
+    if (!isValidRoomName(newRoomName, rooms)) {
       setCreateError("A room with this name already exists. Please choose a different name.");
       return;
     }
 
     setIsCreating(true);
-    setCreateError(""); // Clear any previous errors
+    setCreateError("");
 
-    const result = await createRoom({
-      name: newRoomName.trim(),
-      createdBy: user._id
-    });
-
-    if (result.success) {
-      console.log('Room created successfully:', result.data);
-      setRooms(prev => {
-        // Check if room already exists to prevent duplicates
-        const exists = prev.some(room => String(room._id) === String(result.data._id));
-        if (exists) {
-          console.log('Room already exists in state, not adding duplicate');
-          return prev;
-        }
-        console.log('Adding newly created room to state:', result.data.name);
-        return [result.data, ...prev];
+    try {
+      const result = await createRoom({
+        name: newRoomName.trim(),
+        createdBy: user._id
       });
-      setNewRoomName("");
-      setCreateError("");
-      setShowCreateModal(false);
-    } else {
-      console.error('Error creating room:', result.error);
-      // Handle specific duplicate error from backend
-      if (result.error.includes("already exists")) {
-        setCreateError(result.error);
+
+      if (result.success) {
+        setRooms(prev => {
+          const exists = prev.some(room => room._id === result.data._id);
+          if (exists) {
+            return prev;
+          }
+          return [result.data, ...prev];
+        });
+        setNewRoomName("");
+        setCreateError("");
+        setShowCreateModal(false);
       } else {
-        setCreateError("Failed to create room. Please try again.");
+        if (result.error.includes("already exists")) {
+          setCreateError(result.error);
+        } else {
+          setCreateError("Failed to create room. Please try again.");
+        }
       }
+    } catch (error) {
+      setCreateError("Failed to create room. Please try again.");
     }
 
     setIsCreating(false);
@@ -291,7 +309,7 @@ const Rooms = () => {
     setRoomToEdit(room);
     setEditRoomName(room.name);
     setShowEditModal(true);
-    setError(""); // Clear any existing errors
+    setError("");
   };
 
   const confirmEditRoom = async () => {
@@ -302,32 +320,24 @@ const Rooms = () => {
       return;
     }
 
-    // Frontend validation: Check if room name already exists (excluding current room)
-    const trimmedName = editRoomName.trim().toLowerCase();
-    const existingRoom = rooms.find(room =>
-      room._id !== roomToEdit._id && room.name.toLowerCase() === trimmedName
-    );
-
-    if (existingRoom) {
+    if (!isValidRoomName(editRoomName, rooms, roomToEdit._id)) {
       setError("A room with this name already exists. Please choose a different name.");
       return;
     }
 
-    try {
-      setIsEditing(true);
-      setError(null); // Clear any previous errors
+    setIsEditing(true);
+    setError("");
 
+    try {
       const result = await updateRoom(roomToEdit._id, { name: editRoomName.trim() });
 
       if (result.success) {
-        setRooms(prev => prev.map(room => String(room._id) === String(roomToEdit._id) ? result.data : room));
+        setRooms(prev => prev.map(room => room._id === roomToEdit._id ? result.data : room));
         setShowEditModal(false);
         setRoomToEdit(null);
         setEditRoomName("");
-        setError(""); // Clear errors on success
+        setError("");
       } else {
-        console.error('Error renaming room:', result.error);
-        // Handle specific duplicate error from backend
         if (result.error.includes("already exists")) {
           setError(result.error);
         } else {
@@ -335,73 +345,52 @@ const Rooms = () => {
         }
       }
     } catch (error) {
-      console.error('Error renaming room:', error);
       setError("Failed to update room. Please try again.");
-    } finally {
-      setIsEditing(false);
-    }
-  };
-
-  const handleUpdateRoom = async (roomId, updateData) => {
-    // Frontend validation: Check if room name already exists (excluding current room)
-    if (updateData.name) {
-      const trimmedName = updateData.name.trim().toLowerCase();
-      const existingRoom = rooms.find(room =>
-        room._id !== roomId && room.name.toLowerCase() === trimmedName
-      );
-
-      if (existingRoom) {
-        setError("A room with this name already exists. Please choose a different name.");
-        return;
-      }
     }
 
-    const result = await updateRoom(roomId, updateData);
-
-    if (result.success) {
-      setRooms(prev => prev.map(room => String(room._id) === String(roomId) ? result.data : room));
-      setError(""); // Clear errors on success
-    } else {
-      console.error('Error updating room:', result.error);
-      // Handle specific duplicate error from backend
-      if (result.error.includes("already exists")) {
-        setError(result.error);
-      } else {
-        setError("Failed to update room. Please try again.");
-      }
-    }
+    setIsEditing(false);
   };
 
   const handleDeleteRoom = (room) => {
     setRoomToDelete(room);
     setShowDeleteModal(true);
-    setError(""); // Clear any existing errors
+    setError("");
   };
 
   const confirmDeleteRoom = async () => {
     if (!roomToDelete) return;
 
     setIsDeleting(true);
-    
-    const result = await deleteRoom(roomToDelete._id);
-    
-    if (result.success) {
-      setRooms(prev => prev.filter(r => String(r._id) !== String(roomToDelete._id)));
-      setShowDeleteModal(false);
-      setRoomToDelete(null);
-    } else {
-      console.error('Error deleting room:', result.error);
-      setError(result.error);
+
+    try {
+      const result = await deleteRoom(roomToDelete._id);
+
+      if (result.success) {
+        setRooms(prev => prev.filter(r => r._id !== roomToDelete._id));
+        setShowDeleteModal(false);
+        setRoomToDelete(null);
+      } else {
+        setError(result.error);
+      }
+    } catch (error) {
+      setError("Failed to delete room. Please try again.");
     }
-    
+
     setIsDeleting(false);
   };
 
   const handleCopyRoomLink = (room) => {
-    // Copy only the room ID instead of the full URL
     navigator.clipboard.writeText(room._id);
     setCopiedRoom(room);
     setShowCopyModal(true);
+  };
+
+  const handleShowRoomActivity = (room) => {
+    setSelectedRoomForActivity(room);
+  };
+
+  const handleHideRoomActivity = () => {
+    setSelectedRoomForActivity(null);
   };
 
   if (isLoading) {
@@ -447,7 +436,7 @@ const Rooms = () => {
                 </button>
               )}
             </div>
-            <button 
+            <button
               onClick={() => setShowCreateModal(true)}
               className="rounded-xl bg-[#A78BFA] px-6 py-3 text-base font-bold text-[#1E1E1E] shadow-lg shadow-[#A78BFA]/20 hover:bg-[#A78BFA]/90 transition-colors inline-flex items-center gap-2"
             >
@@ -456,7 +445,7 @@ const Rooms = () => {
           </div>
         </div>
 
-        {/* Stats Cards */}
+        {/* Statistics Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
           <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-5 shadow-lg">
             <div className="flex items-center justify-between">
@@ -469,17 +458,14 @@ const Rooms = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-5 shadow-lg">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-gray-400 text-sm font-medium">Active Collaborators</p>
                 <p className="text-white text-3xl font-bold mt-1">
                   {rooms.reduce((sum, room) => {
-                    const collaborators = Array.isArray(room.participants)
-                      ? room.participants.length
-                      : (room.participants || 0);
-                    return sum + collaborators;
+                    return sum + formatParticipantCount(room.participants);
                   }, 0)}
                 </p>
               </div>
@@ -488,12 +474,19 @@ const Rooms = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-5 shadow-lg">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-gray-400 text-sm font-medium">This Week</p>
-                <p className="text-white text-3xl font-bold mt-1">3</p>
+                <p className="text-white text-3xl font-bold mt-1">
+                  {rooms.filter(room => {
+                    const roomDate = new Date(room.createdAt);
+                    const oneWeekAgo = new Date();
+                    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+                    return roomDate >= oneWeekAgo;
+                  }).length}
+                </p>
               </div>
               <div className="p-3 rounded-full bg-blue-500/10 text-blue-500">
                 <Calendar size={22} />
@@ -502,11 +495,11 @@ const Rooms = () => {
           </div>
         </div>
 
-        {/* Error Message */}
+        {/* Error Display */}
         {error && (
           <div className="mb-6 p-4 bg-red-500/20 border border-red-500 text-red-100 rounded-lg">
             <p>Error: {error}</p>
-            <button 
+            <button
               onClick={() => setError(null)}
               className="mt-2 text-sm underline hover:text-red-200"
             >
@@ -527,17 +520,18 @@ const Rooms = () => {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {myCreatedRooms.map((room) => (
-              <RoomCard 
-                key={room._id} 
+              <RoomCard
+                key={room._id}
                 room={{
                   ...room,
-                  participants: Array.isArray(room.participants) ? room.participants.length : 0,
-                  createdAt: new Date(room.createdAt).toLocaleDateString()
+                  participants: formatParticipantCount(room.participants),
+                  createdAt: formatRoomDate(room.createdAt)
                 }}
                 onJoin={handleJoinRoom}
                 onEdit={handleEditRoom}
                 onDelete={handleDeleteRoom}
-                onCopy={() => handleCopyRoomLink(room)}
+                onCopy={handleCopyRoomLink}
+                onShowActivity={handleShowRoomActivity}
                 user={user}
               />
             ))}
@@ -582,14 +576,15 @@ const Rooms = () => {
                 key={room._id}
                 room={{
                   ...room,
-                  participants: Array.isArray(room.participants) ? room.participants.length : 0,
-                  createdAt: new Date(room.createdAt).toLocaleDateString(),
+                  participants: formatParticipantCount(room.participants),
+                  createdAt: formatRoomDate(room.createdAt),
                   creator: room.createdBy ? room.createdBy.username : 'Unknown'
                 }}
                 onJoin={handleJoinRoom}
                 onEdit={handleEditRoom}
                 onDelete={handleDeleteRoom}
-                onCopy={() => handleCopyRoomLink(room)}
+                onCopy={handleCopyRoomLink}
+                onShowActivity={handleShowRoomActivity}
                 user={user}
               />
             ))}
@@ -618,13 +613,32 @@ const Rooms = () => {
           )}
         </section>
 
-        {/* Room History Section */}
-        <section className="mt-8 mb-8">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-2xl font-bold text-white">Room History</h2>
-          </div>
-          <RoomActivity showAllActivities={true} maxItems={10} />
-        </section>
+        {/* Room Activity Section */}
+        {selectedRoomForActivity && (
+          <section className="mt-8">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <h2 className="text-2xl font-bold text-white">Recent Activity</h2>
+                <span className="text-sm text-gray-400 bg-gray-700 px-3 py-1 rounded-full">
+                  {selectedRoomForActivity.name}
+                </span>
+              </div>
+              <button
+                onClick={handleHideRoomActivity}
+                className="px-4 py-2 text-sm text-gray-400 hover:text-white border border-gray-600 hover:border-gray-500 rounded-lg transition-colors flex items-center gap-2"
+              >
+                <X size={16} />
+                Close
+              </button>
+            </div>
+            <RoomActivity
+              roomId={selectedRoomForActivity._id}
+              showAllActivities={false}
+              maxItems={20}
+            />
+          </section>
+        )}
+
 
         {/* Create Room Modal */}
         {showCreateModal && (
@@ -641,7 +655,7 @@ const Rooms = () => {
                     value={newRoomName}
                     onChange={(e) => {
                       setNewRoomName(e.target.value);
-                      setCreateError(""); // Clear error when user starts typing
+                      setCreateError("");
                     }}
                     className="w-full px-4 py-3 rounded-lg bg-[#1E1E1E] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#A78BFA] focus:border-transparent"
                     placeholder="Enter room name"
@@ -690,7 +704,7 @@ const Rooms = () => {
                   value={editRoomName}
                   onChange={(e) => {
                     setEditRoomName(e.target.value);
-                    setError(""); // Clear error when user starts typing
+                    setError("");
                   }}
                   className="w-full px-4 py-3 rounded-lg bg-[#1E1E1E] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#A78BFA] focus:border-transparent"
                   placeholder="Enter room name"

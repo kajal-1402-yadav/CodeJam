@@ -456,7 +456,7 @@ const clearStorage = (key) => {
         });
 
         const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-        const beaconUrl = `${apiUrl}/api/rooms/${roomId}/files/${currentActiveFileId}`;
+        const beaconUrl = `${apiUrl}/api/files/${roomId}/files/${currentActiveFileId}`;
         
         // Try sendBeacon first
         const beaconSent = navigator.sendBeacon && navigator.sendBeacon(beaconUrl, new Blob([data], { type: 'application/json' }));
@@ -464,7 +464,7 @@ const clearStorage = (key) => {
         if (!beaconSent) {
           // Fallback to synchronous XMLHttpRequest
           const xhr = new XMLHttpRequest();
-          xhr.open('PUT', `/api/rooms/${roomId}/files/${currentActiveFileId}`, false);
+          xhr.open('PUT', `/api/files/${roomId}/files/${currentActiveFileId}`, false);
           xhr.setRequestHeader('Content-Type', 'application/json');
           try {
             xhr.send(data);
