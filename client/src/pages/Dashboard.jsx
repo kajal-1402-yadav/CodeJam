@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Users, Bell, Plus, Search, Loader2, X, ExternalLink, Copy, Edit, Trash2, MoreHorizontal, Home, UserCheck, LogIn } from "lucide-react";
+import { Users, Bell, Plus, Search, Loader2, X, ExternalLink, Home, LogIn } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import useAuthContext from "../hooks/useAuthContext";
 import useSocket from "../hooks/useSocket";
@@ -8,8 +8,24 @@ import { getAllRooms, getRoomById, createRoom, updateRoom, deleteRoom } from "..
 import { getFilesByRoom, getMyFiles } from "../services/fileService";
 import { getActivities } from "../services/activityService";
 
+// Constants
+const MAX_DISPLAY_ACTIVITIES = 5;
+const MAX_FETCH_ACTIVITIES = 100;
+
+// Helper function to capitalize first letter of each word
+const capitalizeFirstLetters = (str) => {
+  return str
+    .toLowerCase()
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
+
+/**
+ * Dashboard Statistics Component
+ * Displays quick stats about user activity and collaboration
+ */
 const QuickStats = ({ rooms = [], filesCount = 0, user, activities = [] }) => {
-  // Calculate active rooms (rooms with activity in last 7 days)
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
@@ -20,7 +36,6 @@ const QuickStats = ({ rooms = [], filesCount = 0, user, activities = [] }) => {
     }
   });
 
-  // Calculate unique collaborators across all rooms
   const allCollaborators = new Set();
   rooms.forEach(room => {
     if (room.participants && Array.isArray(room.participants)) {
@@ -47,22 +62,23 @@ const QuickStats = ({ rooms = [], filesCount = 0, user, activities = [] }) => {
       icon: Users
     }
   ];
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
-      {stats.map((s, i) => {
-        const Icon = s.icon;
+      {stats.map((stat, index) => {
+        const IconComponent = stat.icon;
         return (
           <div
-            key={i}
+            key={index}
             className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-5 shadow-lg transform hover:scale-105 transition-transform duration-300"
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-400 text-sm font-medium">{s.label}</p>
-                <p className="text-white text-3xl font-bold mt-1">{s.value}</p>
+                <p className="text-gray-400 text-sm font-medium">{stat.label}</p>
+                <p className="text-white text-3xl font-bold mt-1">{stat.value}</p>
               </div>
               <div className="p-3 rounded-full bg-[#A78BFA]/10 text-[#A78BFA]">
-                <Icon size={22} />
+                <IconComponent size={22} />
               </div>
             </div>
           </div>
@@ -72,67 +88,20 @@ const QuickStats = ({ rooms = [], filesCount = 0, user, activities = [] }) => {
   );
 };
 
-const RoomCard = ({ room, onJoin, onEdit, onDelete, onCopy, user }) => {
-  const [showMenu, setShowMenu] = useState(false);
-
-  // Close menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (showMenu && !event.target.closest('.room-card')) {
-        setShowMenu(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [showMenu]);
-
+/**
+ * Room Card Component
+ * Displays individual room information with actions
+ */
+const RoomCard = ({ room, onJoin, user }) => {
   return (
     <div className="bg-[#1E1E1E]/50 rounded-xl border border-gray-800 p-5 shadow-md flex flex-col justify-between transform hover:-translate-y-1 transition-transform duration-300 group relative room-card">
       <div className="relative">
-        <button
-          onClick={() => setShowMenu(!showMenu)}
-          className="absolute top-0 right-0 p-1 rounded-full hover:bg-gray-700 transition-colors z-10"
-        >
-          <MoreHorizontal size={16} className="text-gray-400 hover:text-white" />
-        </button>
-
         <h3 className="text-white font-bold text-lg mb-1 group-hover:text-[#A78BFA] transition-colors pr-8">{room.name}</h3>
         <p className="text-gray-400 text-sm">Collaborators: {room.participants}</p>
-        {room.creator && <p className="text-gray-400 text-sm">Created by: {room.creator}</p>}
-        <p className="text-gray-500 text-xs mt-1">Created: {room.createdAt}</p>
-
-        {/* Dropdown Menu */}
-        {showMenu && (
-          <div className="absolute top-8 right-0 bg-[#1E1E1E] border border-gray-700 rounded-lg shadow-lg z-20 min-w-[120px]">
-            {room.createdBy && String(room.createdBy._id) === String(user._id) && (
-              <>
-                <button
-                  onClick={() => {
-                    onEdit(room);
-                    setShowMenu(false);
-                  }}
-                  className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
-                >
-                  <Edit size={14} />
-                  Rename
-                </button>
-                <button
-                  onClick={() => {
-                    onDelete(room);
-                    setShowMenu(false);
-                  }}
-                  className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-gray-700 hover:text-red-300 transition-colors flex items-center gap-2"
-                >
-                  <Trash2 size={14} />
-                  Delete
-                </button>
-              </>
-            )}
-          </div>
+        {room.createdBy && String(room.createdBy._id) !== String(user._id) && (
+          <p className="text-gray-400 text-sm">Created by: {room.createdBy.username}</p>
         )}
+        <p className="text-gray-500 text-xs mt-1">Created: {room.createdAt}</p>
       </div>
 
       <div className="mt-5 flex gap-3">
@@ -143,18 +112,15 @@ const RoomCard = ({ room, onJoin, onEdit, onDelete, onCopy, user }) => {
           <ExternalLink size={16} />
           Join
         </button>
-        <button
-          onClick={() => onCopy(room)}
-          className="px-4 py-2 rounded-lg border border-gray-600 text-sm font-bold text-gray-300 hover:border-[#A78BFA] hover:text-white transition-colors flex items-center gap-2"
-        >
-          <Copy size={16} />
-        </button>
       </div>
     </div>
   );
 };
 
-
+/**
+ * Main Dashboard Component
+ * Provides an overview of user's rooms, activities, and quick stats
+ */
 const Dashboard = () => {
   const { user } = useAuthContext();
   const navigate = useNavigate();
@@ -166,26 +132,19 @@ const Dashboard = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [newRoomName, setNewRoomName] = useState("");
 
-  // New state for real-time data
   const [filesCount, setFilesCount] = useState(0);
   const [activities, setActivities] = useState([]);
   const [userFiles, setUserFiles] = useState([]);
 
-  // Toast state for copy notifications
-  const [showToast, setShowToast] = useState(false);
-
-  // Delete room state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [roomToDelete, setRoomToDelete] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Join room state
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [roomCode, setRoomCode] = useState("");
   const [isJoining, setIsJoining] = useState(false);
   const [joinError, setJoinError] = useState("");
 
-  // Set up socket connection (no roomId for dashboard - just connect for global events)
   const socket = useSocket();
 
   // Fetch rooms from backend
@@ -200,77 +159,25 @@ const Dashboard = () => {
     }
   }, [user]);
 
-  // Fetch recent activities (more for active rooms calculation)
+  // Fetch recent activities
   useEffect(() => {
     if (user) {
       fetchActivities();
     }
   }, [user]);
 
-  // Set up socket listeners for real-time updates
+  // Socket event listeners for real-time updates
   useEffect(() => {
     if (socket) {
-      // Listen for new activities
       socket.on('activityCreated', (newActivity) => {
-        // Only add activities that should appear in the activity feed
-        const activityOnlyTypes = [
-          'file_edited',
-          'message_sent',
-          'code_executed',
-          'room_updated'
-        ];
-        const bothTypes = [
-          'file_created',
-          'file_deleted',
-          'file_renamed',
-          'user_joined',
-          'user_left',
-          'room_created',
-          'room_deleted'
-        ];
-
-        if (!activityOnlyTypes.includes(newActivity.type) && !bothTypes.includes(newActivity.type)) {
-          return; // Skip notification-only activities
-        }
-
         setActivities(prev => {
-          // Check if this activity already exists to prevent duplicates
-          const exists = prev.some(activity => {
-            // Exact ID match (fastest check)
-            if (activity._id === newActivity._id) return true;
-
-            // Content-based match for similar activities within time window
-            if (activity.description === newActivity.description &&
-                activity.user?._id === newActivity.user?._id &&
-                activity.room?._id === newActivity.room?._id) {
-
-              // Check if activities are within 30 seconds of each other
-              const timeDiff = Math.abs(new Date(activity.createdAt) - new Date(newActivity.createdAt));
-              return timeDiff < 30000; // 30 seconds
-            }
-
-            return false;
-          });
-
-          if (exists) {
-            return prev; // Don't add duplicate
+          if (prev.find(activity => activity._id === newActivity._id)) {
+            return prev;
           }
-
-          // Add new activity and keep only latest 5
-          return [newActivity, ...prev.slice(0, 4)];
+          return [newActivity, ...prev.slice(0, MAX_DISPLAY_ACTIVITIES - 1)];
         });
       });
 
-      // Listen for room updates (participants joining/leaving)
-      socket.on('roomUsers', (users) => {
-        // Update room participant counts in real-time
-        setRooms(prev => prev.map(room => ({
-          ...room,
-          participants: users.length // This would need room-specific logic
-        })));
-      });
-
-      // Listen for room participant updates (when users join/leave)
       socket.on('roomParticipantsUpdated', (data) => {
         const { roomId, participants } = data;
         setRooms(prev => prev.map(room =>
@@ -280,20 +187,6 @@ const Dashboard = () => {
         ));
       });
 
-      // Listen for current user joining a room (handled in join function now)
-      // socket.on('userJoinedRoom', (data) => {
-      //   const { roomId, room } = data;
-      //   // If this room isn't in our current rooms list, add it
-      //   setRooms(prev => {
-      //     const roomExists = prev.some(r => r._id === roomId);
-      //     if (!roomExists) {
-      //       return [room, ...prev];
-      //     }
-      //     return prev;
-      //   });
-      // });
-
-      // Listen for room deletions
       socket.on('roomDeleted', (data) => {
         setRooms(prev => prev.filter(room => String(room._id) !== String(data.roomId)));
       });
@@ -302,9 +195,7 @@ const Dashboard = () => {
     return () => {
       if (socket) {
         socket.off('activityCreated');
-        socket.off('roomUsers');
         socket.off('roomParticipantsUpdated');
-        // socket.off('userJoinedRoom'); // Now handled in join function
         socket.off('roomDeleted');
       }
     };
@@ -326,11 +217,9 @@ const Dashboard = () => {
   };
 
   const fetchActivities = async () => {
-    // Get more activities for active rooms calculation (last 7 days worth)
-    const result = await getActivities({ limit: 100 });
+    const result = await getActivities({ limit: MAX_FETCH_ACTIVITIES });
 
     if (result.success) {
-      // Filter activities to last 7 days for active rooms calculation
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
@@ -338,52 +227,11 @@ const Dashboard = () => {
         new Date(activity.createdAt) >= sevenDaysAgo
       );
 
-      // Filter out notification-only activities, keep only activity feed items
-      const activityFeedActivities = recentActivities.filter(activity => {
-        const activityOnlyTypes = [
-          // Activity Only (History/Log Feed) - Historical events for tracking
-          'file_edited',
-          'message_sent',
-          'code_executed',
-          'room_updated'
-        ];
-        const bothTypes = [
-          // Both Activity + Notifications - Important events for both record and alerts
-          'file_created',
-          'file_deleted',
-          'file_renamed',
-          'user_joined',
-          'user_left',
-          'room_created',
-          'room_deleted'
-        ];
+      const uniqueActivities = recentActivities.filter((activity, index, self) =>
+        index === self.findIndex(a => a._id === activity._id)
+      );
 
-        return activityOnlyTypes.includes(activity.type) || bothTypes.includes(activity.type);
-      });
-
-      // Remove duplicates and limit to 5 for display
-      const uniqueActivities = activityFeedActivities.filter((activity, index, self) => {
-        const thirtySecondsAgo = Date.now() - 30000;
-
-        return index === self.findIndex(a => {
-          // Exact ID match (fastest check)
-          if (a._id === activity._id) return true;
-
-          // Content-based match for similar activities within time window
-          if (a.description === activity.description &&
-              a.user?._id === activity.user?._id &&
-              a.room?._id === activity.room?._id) {
-
-            // Check if activities are within 30 seconds of each other
-            const timeDiff = Math.abs(new Date(a.createdAt) - new Date(activity.createdAt));
-            return timeDiff < 30000; // 30 seconds
-          }
-
-          return false;
-        });
-      });
-
-      setActivities(uniqueActivities.slice(0, 5));
+      setActivities(uniqueActivities.slice(0, MAX_DISPLAY_ACTIVITIES));
     } else {
       console.error('Error fetching activities:', result.error);
     }
@@ -414,13 +262,12 @@ const Dashboard = () => {
     (room.createdBy && room.createdBy.username && room.createdBy.username.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  const [createError, setCreateError] = useState(""); // Separate error for create modal
+  const [createError, setCreateError] = useState("");
 
   const handleCreateRoom = async (e) => {
     e.preventDefault();
     if (!newRoomName.trim()) return;
 
-    // Frontend validation: Check if room name already exists in current rooms (case-insensitive)
     const trimmedName = newRoomName.trim().toLowerCase();
     const existingRoom = rooms.find(room =>
       room.name.toLowerCase() === trimmedName
@@ -432,7 +279,7 @@ const Dashboard = () => {
     }
 
     setIsCreating(true);
-    setCreateError(""); // Clear any previous errors
+    setCreateError("");
 
     const result = await createRoom({
       name: newRoomName.trim(),
@@ -441,7 +288,6 @@ const Dashboard = () => {
 
     if (result.success) {
       setRooms(prev => {
-        // Check if room already exists to prevent duplicates
         const exists = prev.some(room => room._id === result.data._id);
         if (exists) {
           return prev;
@@ -453,7 +299,6 @@ const Dashboard = () => {
       setShowCreateModal(false);
     } else {
       console.error('Error creating room:', result.error);
-      // Handle specific duplicate error from backend
       if (result.error.includes("already exists")) {
         setCreateError(result.error);
       } else {
@@ -465,7 +310,6 @@ const Dashboard = () => {
   };
 
   const handleJoinRoom = (room) => {
-    // Navigate to room or implement join logic
     navigate(`/room/${room._id}`);
   };
 
@@ -485,7 +329,6 @@ const Dashboard = () => {
     setIsJoining(true);
     setJoinError("");
 
-    // First, try to get the room by ID to verify it exists
     const result = await getRoomById(roomCode.trim());
 
     if (!result.success) {
@@ -496,32 +339,25 @@ const Dashboard = () => {
 
     const roomData = result.data;
 
-    // Check if user is already a participant or creator
     if (roomData.createdBy === user._id || (Array.isArray(roomData.participants) && roomData.participants.some(p => String(p._id) === String(user._id)))) {
       setJoinError("You're already a member of this room.");
       setIsJoining(false);
       return;
     }
 
-    // Join the room using socket and wait for confirmation
     if (socket) {
       try {
-        // Create a promise that resolves when userJoinedRoom event is received
         const joinPromise = new Promise((resolve, reject) => {
           const handleUserJoinedRoom = (data) => {
             const { roomId, room } = data;
-            // If this room isn't in our current rooms list, add it
             if (roomId === roomData._id) {
               setRooms(prev => {
-                // Check if room already exists to prevent duplicates
                 const roomExists = prev.some(r => String(r._id) === String(roomId));
                 if (roomExists) {
-                  // Update existing room with new data
                   return prev.map(r =>
                     String(r._id) === String(roomId) ? { ...r, ...room } : r
                   );
                 } else {
-                  // Add new room
                   return [room, ...prev];
                 }
               });
@@ -532,13 +368,11 @@ const Dashboard = () => {
 
           socket.on('userJoinedRoom', handleUserJoinedRoom);
 
-          // Set a timeout in case the event doesn't come
           setTimeout(() => {
             socket.off('userJoinedRoom', handleUserJoinedRoom);
             reject(new Error('Join room timeout'));
           }, 5000);
 
-          // Emit the join room event
           socket.emit("joinRoom", {
             roomId: roomData._id,
             user: {
@@ -549,10 +383,7 @@ const Dashboard = () => {
           });
         });
 
-        // Wait for the room to be added to the user's rooms list
         await joinPromise;
-
-        // Now navigate to the room
         navigate(`/room/${roomData._id}`);
         setShowJoinModal(false);
 
@@ -568,7 +399,6 @@ const Dashboard = () => {
   };
 
   const handleEditRoom = (room) => {
-    // For now, use prompt as placeholder - should be replaced with modal
     const newName = prompt("Enter new room name:", room.name);
     if (newName && newName.trim() !== room.name) {
       handleUpdateRoom(room._id, { name: newName.trim() });
@@ -576,7 +406,6 @@ const Dashboard = () => {
   };
 
   const handleUpdateRoom = async (roomId, updateData) => {
-    // Frontend validation: Check if room name already exists (excluding current room)
     if (updateData.name) {
       const trimmedName = updateData.name.trim().toLowerCase();
       const existingRoom = rooms.find(room =>
@@ -595,7 +424,6 @@ const Dashboard = () => {
       setRooms(prev => prev.map(room => room._id === roomId ? result.data : room));
     } else {
       console.error('Error updating room:', result.error);
-      // Handle specific duplicate error from backend
       if (result.error.includes("already exists")) {
         setError(result.error);
       } else {
@@ -613,9 +441,9 @@ const Dashboard = () => {
     if (!roomToDelete) return;
 
     setIsDeleting(true);
-    
+
     const result = await deleteRoom(roomToDelete._id);
-    
+
     if (result.success) {
       setRooms(prev => prev.filter(r => r._id !== roomToDelete._id));
       setShowDeleteModal(false);
@@ -624,15 +452,8 @@ const Dashboard = () => {
       console.error('Error deleting room:', result.error);
       setError(result.error);
     }
-    
-    setIsDeleting(false);
-  };
 
-  const handleCopyRoomLink = (room) => {
-    // Copy only the room ID instead of the full URL
-    navigator.clipboard.writeText(room._id);
-    setShowToast(true);
-    setTimeout(() => setShowToast(false), 2000);
+    setIsDeleting(false);
   };
 
   if (isLoading) {
@@ -679,13 +500,13 @@ const Dashboard = () => {
               )}
             </div>
             <div className="flex gap-4">
-              <button 
+              <button
                 onClick={() => setShowCreateModal(true)}
                 className="rounded-xl bg-[#A78BFA] px-6 py-3 text-base font-bold text-[#1E1E1E] shadow-lg shadow-[#A78BFA]/20 hover:bg-[#A78BFA]/90 transition-colors inline-flex items-center gap-2"
               >
                 <Plus size={16} /> Create Room
               </button>
-              <button 
+              <button
                 onClick={handleJoinRoomModal}
                 className="rounded-xl bg-[#A78BFA]/20 px-6 py-3 text-base font-bold text-white border border-purple-500/30 ring-1 ring-inset ring-[#A78BFA]/30 hover:bg-[#A78BFA]/30 transition-colors"
               >
@@ -696,12 +517,11 @@ const Dashboard = () => {
         </div>
 
         <QuickStats rooms={filteredRooms} filesCount={filesCount} user={user} activities={activities} />
-        
-        {/* Error Message */}
+
         {error && (
           <div className="mb-6 p-4 bg-red-500/20 border border-red-500 text-red-100 rounded-lg">
             <p>Error: {error}</p>
-            <button 
+            <button
               onClick={() => setError(null)}
               className="mt-2 text-sm underline hover:text-red-200"
             >
@@ -731,9 +551,6 @@ const Dashboard = () => {
                   createdAt: new Date(room.createdAt).toLocaleDateString()
                 }}
                 onJoin={handleJoinRoom}
-                onEdit={handleEditRoom}
-                onDelete={handleDeleteRoom}
-                onCopy={handleCopyRoomLink}
                 user={user}
               />
             ))}
@@ -766,13 +583,13 @@ const Dashboard = () => {
           <h2 className="text-2xl font-bold text-white mb-5">Recent Activity</h2>
           <div className="space-y-3">
             {activities.length > 0 ? (
-              activities.map((activity, i) => (
-                <div key={activity._id || i} className="p-4 rounded-lg bg-[#1E1E1E]/50 border border-gray-800">
+              activities.map((activity, index) => (
+                <div key={activity._id || index} className="p-4 rounded-lg bg-[#1E1E1E]/50 border border-gray-800">
                   <div className="flex justify-between items-start mb-2">
                     <span className="text-white font-medium">
                       {activity.user && String(activity.user._id) === String(user._id)
-                        ? activity.description.replace(activity.user.username, 'You')
-                        : activity.description
+                        ? capitalizeFirstLetters(activity.description.replace(activity.user.username, 'You'))
+                        : capitalizeFirstLetters(activity.description)
                       }
                     </span>
                     <span className="text-gray-500 text-sm">
@@ -781,7 +598,7 @@ const Dashboard = () => {
                   </div>
                   {activity.room && (
                     <div className="text-[#A78BFA] text-sm font-medium">
-                      in {activity.room.name}
+                      {activity.room.name}
                     </div>
                   )}
                 </div>
@@ -796,7 +613,6 @@ const Dashboard = () => {
           </div>
         </section>
 
-        {/* Create Room Modal */}
         {showCreateModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
             <div className="bg-[#1E1E1E] rounded-xl p-6 w-full max-w-md mx-4 border border-gray-800">
@@ -811,7 +627,7 @@ const Dashboard = () => {
                     value={newRoomName}
                     onChange={(e) => {
                       setNewRoomName(e.target.value);
-                      setCreateError(""); // Clear error when user starts typing
+                      setCreateError("");
                     }}
                     className="w-full px-4 py-3 rounded-lg bg-[#1E1E1E] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#A78BFA] focus:border-transparent"
                     placeholder="Enter room name"
@@ -846,7 +662,6 @@ const Dashboard = () => {
           </div>
         )}
 
-        {/* Delete Room Modal */}
         {showDeleteModal && roomToDelete && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
             <div className="bg-[#1E1E1E] rounded-xl p-6 w-full max-w-md mx-4 border border-gray-800">
@@ -881,7 +696,6 @@ const Dashboard = () => {
           </div>
         )}
 
-        {/* Join Room Modal */}
         {showJoinModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
             <div className="bg-[#1E1E1E] rounded-xl p-6 w-full max-w-md mx-4 border border-gray-800">
@@ -931,13 +745,6 @@ const Dashboard = () => {
           </div>
         )}
       </main>
-
-      {/* Toast Notification */}
-      {showToast && (
-        <div className="fixed top-4 right-4 bg-green-600 text-white px-4 py-3 rounded-lg shadow-lg z-50">
-          Room ID copied to clipboard!
-        </div>
-      )}
     </div>
   );
 };
