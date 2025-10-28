@@ -20,16 +20,36 @@ const debounce = (func, delay) => {
 const debouncedSaveFunctions = {};
 const socketHandler = (io) => {
     io.use((socket, next) => {
-        try {
-            const token = socket.handshake.auth && socket.handshake.auth.token;
-            if (token) {
-                const decoded = jwt.verify(token, process.env.JWT_SECRET);
-                socket.user = { _id: decoded._id };
-            }
-        } catch (e) {
-            // If token invalid, proceed without attaching user; routes still protected via HTTP
+        const token = socket.handshake.auth?.token;
+        
+        if (!token) {
+            return next(new Error('Authentication token is required'));
         }
-        next();
+
+        try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            if (!decoded?._id) {
+                return next(new Error('Invalid token payload'));
+            }
+            
+            // Attach the full user object for easier access
+            socket.user = { 
+                _id: decoded._id,
+                username: decoded.username,
+                email: decoded.email
+            };
+            next();
+        } catch (error) {
+            if (error.name === 'TokenExpiredError') {
+                return next(new Error('Token has expired'));
+            }
+            return next(new Error('Invalid or malformed token'));
+        }
+    });
+    
+    // Handle connection errors
+    io.on('connection_error', (err) => {
+        console.error('Socket connection error:', err.message);
     });
 
     io.on("connection", (socket) => {
@@ -423,7 +443,7 @@ const socketHandler = (io) => {
                 }
 
                 // Update file name in database
-                await File.findByIdAndUpdate(fileId, { name: newName });
+                await File.findByIdAndUpdate(fileId, { filename: newName });
             } catch (error) {
                 console.error('Error renaming file:', error);
             }
