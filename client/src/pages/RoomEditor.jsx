@@ -1,4 +1,17 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+// Helper to combine HTML and CSS for preview
+function buildHtmlPreview(htmlContent, cssList) {
+  // Insert all CSS into a <style> tag in the <head>
+  const styleTag = `<style>\n${cssList.join('\n')}\n</style>`;
+  // Try to inject into <head>, or at the top if no <head>
+  if (/<head[\s>]/i.test(htmlContent)) {
+    return htmlContent.replace(/<head([\s>])/i, `<head$1${styleTag}`);
+  } else if (/<html[\s>]/i.test(htmlContent)) {
+    return htmlContent.replace(/<html([\s>])/i, `<html$1<head>${styleTag}</head>`);
+  } else {
+    return `<head>${styleTag}</head>\n${htmlContent}`;
+  }
+}
 import { useParams, useNavigate } from "react-router-dom";
 import { Edit, Trash2, Folder as FolderIcon, Plus } from "lucide-react";
 import FileExplorer from "../components/FileExplorer";
@@ -1058,20 +1071,69 @@ const clearStorage = (key) => {
               </div>
             </div>
           ) : (
-            <EditorArea
-              activeContent={activeContent}
-              selectedLanguage={selectedLanguage}
-              isPreviewOpen={isPreviewOpen}
-              onEditorMount={(editor) => {
-                editorRef.current = editor;
-                setTimeout(() => editor.focus(), 100);
-              }}
-              onContentChange={debouncedHandleChange}
-              roomId={roomId}
-              files={files}
-              folders={folders}
-              activeFileId={activeFileId}
-            />
+            // If previewing an HTML file, show iframe with injected CSS
+            isPreviewOpen && activeFile && (activeFile.language === 'html' || /\.html$/i.test(activeFile.filename)) ? (
+              (() => {
+                // Find all CSS and JS files in the same folder as the HTML file
+                const htmlFile = activeFile;
+                const htmlFolder = htmlFile.folder;
+                const cssFiles = files.filter(f =>
+                  (f.language === 'css' || /\.css$/i.test(f.filename)) &&
+                  f.folder === htmlFolder
+                );
+                const jsFiles = files.filter(f =>
+                  (f.language === 'javascript' || /\.js$/i.test(f.filename)) &&
+                  f.folder === htmlFolder
+                );
+                // If a CSS or JS file is open and being edited, use the latest unsaved value (activeContent)
+                const cssContents = cssFiles.map(f => {
+                  if (f._id === activeFileId && selectedLanguage === 'css') {
+                    return activeContent;
+                  }
+                  return tabContents[f._id] ?? f.content ?? '';
+                });
+                const jsContents = jsFiles.map(f => {
+                  if (f._id === activeFileId && selectedLanguage === 'javascript') {
+                    return activeContent;
+                  }
+                  return tabContents[f._id] ?? f.content ?? '';
+                });
+                const htmlContent = tabContents[htmlFile._id] ?? htmlFile.content ?? '';
+                // Remove <script src=...> tags from HTML to prevent 404s, since all JS is injected inline
+                let previewHtml = buildHtmlPreview(htmlContent.replace(/<script[^>]*src=[^>]+><\/script>/gi, ''), cssContents);
+                if (jsContents.length > 0) {
+                  const scripts = jsContents.map(code => `<script>${code}\n<\/script>`).join('\n');
+                  if (/<\/body>/i.test(previewHtml)) {
+                    previewHtml = previewHtml.replace(/<\/body>/i, scripts + '</body>');
+                  } else {
+                    previewHtml += scripts;
+                  }
+                }
+                return (
+                  <iframe
+                    title="HTML Preview"
+                    className="flex-1 w-full h-full bg-white border-none"
+                    sandbox="allow-scripts"
+                    srcDoc={previewHtml}
+                  />
+                );
+              })()
+            ) : (
+              <EditorArea
+                activeContent={activeContent}
+                selectedLanguage={selectedLanguage}
+                isPreviewOpen={isPreviewOpen}
+                onEditorMount={(editor) => {
+                  editorRef.current = editor;
+                  setTimeout(() => editor.focus(), 100);
+                }}
+                onContentChange={debouncedHandleChange}
+                roomId={roomId}
+                files={files}
+                folders={folders}
+                activeFileId={activeFileId}
+              />
+            )
           )}
         </div>
 
