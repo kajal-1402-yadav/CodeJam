@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-// Helper to combine HTML and CSS for preview
+// Helper to combine HTML, CSS and JS for preview
 function buildHtmlPreview(htmlContent, cssList) {
   // Insert all CSS into a <style> tag in the <head>
   const styleTag = `<style>\n${cssList.join('\n')}\n</style>`;
@@ -12,7 +12,7 @@ function buildHtmlPreview(htmlContent, cssList) {
     return `<head>${styleTag}</head>\n${htmlContent}`;
   }
 }
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { Edit, Trash2, Folder as FolderIcon, Plus } from "lucide-react";
 import FileExplorer from "../components/FileExplorer";
 import Topbar from "../components/Topbar";
@@ -23,259 +23,89 @@ import FileTabs from "../components/FileTabs";
 import ContextMenu, { ContextMenuItem } from "../components/ContextMenu";
 import useAuthContext from "../hooks/useAuthContext";
 import { useSocket } from "../context/SocketContext";
-import { getFilesByRoom, getFileById, createFile, updateFile, deleteFile } from "../services/fileService";
-import { getFoldersByRoom, createFolder, updateFolder, deleteFolder } from "../services/folderService";
-import { getRoomById } from "../services/roomService";
-import { executeCode } from "../services/executeService";
-
-const languageByFilename = (name) => {
-  const ext = name.split(".").pop()?.toLowerCase();
-  switch (ext) {
-    case "js": return "javascript";
-    case "ts": return "typescript";
-    case "py": return "python";
-    case "java": return "java";
-    case "c": return "c";
-    case "cpp": return "cpp";
-    case "html": return "html";
-    case "css": return "css";
-    case "json": return "json";
-    case "md": return "markdown";
-    default: return "plaintext";
-  }
-};
+import { useRoomData } from "../hooks/useRoomData";
+import { useSocketHandler } from "../hooks/useSocketHandler";
+import { useEditorTabs } from "../hooks/useEditorTabs";
+import { useCodeExecution } from "../hooks/useCodeExecution";
+import { useChatHandler } from "../hooks/useChatHandler";
+import { updateFile } from "../services/fileService";
+import { languageByFilename } from "../utils/languageByFilename";
 
 export default function RoomEditor() {
   const { user } = useAuthContext();
   const socket = useSocket();
   const { id: roomId } = useParams();
   const navigate = useNavigate();
-
-  const [openTabs, setOpenTabs] = useState([]);
-  const [files, setFiles] = useState([]);
-  const [folders, setFolders] = useState([]);
-  const [activeFileId, setActiveFileId] = useState(null);
-  const [room, setRoom] = useState(null);
   const [expandedFolders, setExpandedFolders] = useState(new Set());
-  const [activeContent, setActiveContent] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
-  const [terminalLines, setTerminalLines] = useState([]);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-  const [cwd, setCwd] = useState('');
   const [terminalHeight, setTerminalHeight] = useState(176); // ~h-44
   const isDraggingTerm = useRef(false);
-  const [chatMessages, setChatMessages] = useState([]);
-  const [chatInput, setChatInput] = useState("");
   const [contextMenu, setContextMenu] = useState(null);
   const [editingItem, setEditingItem] = useState(null);
   const [creatingIn, setCreatingIn] = useState(null);
-  const [selectedLanguage, setSelectedLanguage] = useState("plaintext");
   const [autoSaveStatus, setAutoSaveStatus] = useState('saved'); // 'saving', 'saved', 'error'
-  const didWelcome = useRef(false);
+  const [fileToOpen, setFileToOpen] = useState(null);
   const editorRef = useRef(null);
-  const saveTimeoutRef = useRef(null);
+  const containerRef = useRef(null);
+  const [leftWidth, setLeftWidth] = useState(null); // width of editor pane in px
+  const isDraggingPreview = useRef(false);
 
-  // ======== LocalStorage helpers ========
-const loadFromStorage = (key, defaultValue = null) => {
-  try {
-    const stored = localStorage.getItem(`${roomId}_${key}`);
-    return stored ? JSON.parse(stored) : defaultValue;
-  } catch {
-    return defaultValue;
-  }
-};
+  const [terminalLines, setTerminalLines] = useState([]);
+  const appendTerminal = useCallback((text) => {
+    setTerminalLines(prev => [...prev, text]);
+  }, []);
 
-const saveToStorage = (key, value) => {
-  try {
-    localStorage.setItem(`${roomId}_${key}`, JSON.stringify(value));
-  } catch (error) {
-    console.error('Failed to save to localStorage:', error);
-  }
-};
-
-const clearStorage = (key) => {
-  try { localStorage.removeItem(`${roomId}_${key}`); } catch {}
-};
-
-  const [tabContents, setTabContents] = useState(() => loadFromStorage('tabContents', {}));
-  const activeFile = useMemo(() => files.find(f => f._id === activeFileId) || null, [files, activeFileId]);
-  const openTabsData = useMemo(() => openTabs.map(tabId => files.find(f => f._id === tabId)).filter(Boolean), [openTabs, files]);
-
-  // Update selectedLanguage when active file changes
-  useEffect(() => {
-    if (!activeFile) {
-      setSelectedLanguage("plaintext");
-      return;
-    }
-
-    // Use file's stored language or detect from filename
-    const fileLanguage = activeFile.language || languageByFilename(activeFile.filename);
-
-    // Ensure the language is valid for Monaco Editor
-    const validMonacoLanguages = [
-      'plaintext', 'javascript', 'typescript', 'python', 'java', 'c', 'cpp',
-      'html', 'css', 'json', 'markdown', 'sql', 'php', 'ruby', 'go', 'rust',
-      'swift', 'kotlin', 'scala', 'r', 'matlab', 'shell', 'yaml', 'xml'
-    ];
-
-    const finalLanguage = validMonacoLanguages.includes(fileLanguage) ? fileLanguage : 'plaintext';
-
-    setSelectedLanguage(finalLanguage);
-  }, [activeFile]);
-
-  // Join/leave room with proper cleanup
-  useEffect(() => {
-    if (!socket || !user) return;
-    
-    socket.emit("joinRoom", { roomId, user });
-    
-    return () => {
-      // Save current file before leaving - use synchronous approach for cleanup
-      const currentActiveFileId = activeFileId;
-      const currentActiveContent = activeContent;
-      
-      if (currentActiveFileId && currentActiveContent) {
-        // Update localStorage immediately
-        try {
-          localStorage.setItem(`${roomId}_lastContent_${currentActiveFileId}`, currentActiveContent);
-        } catch (e) {
-          console.error('Failed to save to localStorage:', e);
-        }
-        
-        // Attempt to save to server (best effort)
-        updateFile(roomId, currentActiveFileId, { content: currentActiveContent })
-          .catch(error => {
-            console.error('Failed to save file before leaving room:', error);
-          });
-      }
-      
-      socket.emit("leaveRoom", { roomId, user });
-    };
-  }, [socket, roomId, user, activeFileId, activeContent]);
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [filesRes, foldersRes, roomRes] = await Promise.all([
-          getFilesByRoom(roomId),
-          getFoldersByRoom(roomId),
-          getRoomById(roomId)
-        ]);
+  const {
+    files, setFiles, folders, setFolders, room, setRoom, loading,
+    handleAddFile, handleAddFolder, handleRenameFile, handleDeleteFile,
+    handleRenameFolder, handleDeleteFolder
+  } = useRoomData(roomId, socket, appendTerminal);
   
-        if (!filesRes.success || !foldersRes.success || !roomRes.success) {
-          console.error('Failed to load room data');
-          return;
-        }
+  const {
+    openTabs, setOpenTabs, activeFileId, setActiveFileId, activeContent, setActiveContent,
+    tabContents, updateTabContent, selectedLanguage, setSelectedLanguage, activeFile, openTabsData,
+    switchToFile, handleCloseTab, saveCurrentFile, saveTimeoutRef
+  } = useEditorTabs(roomId, files, setFiles);
   
-        setFiles(filesRes.data);
-        setFolders(foldersRes.data);
-        setRoom(roomRes.data);
+  const {
+    isTerminalOpen, setIsTerminalOpen, cwd,
+    handleExecute, toggleTerminal
+  } = useCodeExecution({ activeFile, activeContent, folders, room, appendTerminal, setTerminalLines });
 
-        // Auto-expand root folder (folder with room name and no parent)
-        const rootFolder = foldersRes.data.find(f => !f.parent && f.name === roomRes.data.name);
+  const {
+    isChatOpen, setIsChatOpen, chatMessages, chatInput, setChatInput,
+    sendMessage, handleEditMessage, handleDeleteMessage: deleteChatMessage
+  } = useChatHandler(socket, roomId);
+
+  useSocketHandler({
+    socket, roomId, setFiles, setFolders, setActiveFileId, setActiveContent, setOpenTabs, appendTerminal, activeFileId, user
+  });
+
+  // Initial file opening logic
+  useEffect(() => {
+    if (!loading && files.length > 0 && !activeFileId) {
+        const rootFolder = folders.find(f => !f.parent && f.name === room.name);
         if (rootFolder) {
           setExpandedFolders(prev => new Set([...Array.from(prev), rootFolder._id]));
         }
 
-        // Restore open tabs from localStorage
-        const savedOpenTabs = loadFromStorage('openTabs', []);
-        const savedActiveFileId = loadFromStorage('activeFileId', null);
-        const savedTabContents = loadFromStorage('tabContents', {});
-        
-        // Filter out tabs for files that no longer exist
-        const validTabs = savedOpenTabs.filter(tabId => 
-          filesRes.data.find(f => f._id === tabId)
-        );
-        
-        // Determine which file to open
-        let fileToOpen = null;
-        let tabsToOpen = [];
-        let activeFileIdToSet = null;
-        
-        if (validTabs.length > 0) {
-          // Restore previously open tabs
-          tabsToOpen = validTabs;
-          
-          // Try to restore the previously active file
-          if (savedActiveFileId && validTabs.includes(savedActiveFileId)) {
-            fileToOpen = filesRes.data.find(f => f._id === savedActiveFileId);
-            activeFileIdToSet = savedActiveFileId;
-          } else {
-            // Active file was closed, use first tab
-            fileToOpen = filesRes.data.find(f => f._id === validTabs[0]);
-            activeFileIdToSet = validTabs[0];
-          }
+        const lastActiveFileId = localStorage.getItem(`${roomId}_activeFileId`);
+        if (lastActiveFileId && files.find(f => f._id === JSON.parse(lastActiveFileId))) {
+            switchToFile(JSON.parse(lastActiveFileId));
         } else {
-          // No saved tabs, open first file if available
-          if (filesRes.data.length > 0) {
-            fileToOpen = filesRes.data[0];
-            tabsToOpen = [fileToOpen._id];
-            activeFileIdToSet = fileToOpen._id;
-          }
+            switchToFile(files[0]._id);
         }
+    }
+  }, [loading, files, activeFileId, switchToFile, roomId, folders, room]);
 
-        if (fileToOpen && activeFileIdToSet) {
-          // Try to restore content from localStorage first (for unsaved changes)
-          const savedContent = localStorage.getItem(`${roomId}_lastContent_${activeFileIdToSet}`);
-          
-          if (savedContent !== null) {
-            // Use saved content from localStorage (unsaved changes)
-            setActiveFileId(activeFileIdToSet);
-            setActiveContent(savedContent);
-            setOpenTabs(tabsToOpen);
-            
-            // Restore cached tab contents
-            if (Object.keys(savedTabContents).length > 0) {
-              setTabContents(savedTabContents);
-            }
-            
-            // Clean up the temporary save
-            localStorage.removeItem(`${roomId}_lastContent_${activeFileIdToSet}`);
-          } else {
-            // Check if we have cached content
-            const cachedContent = savedTabContents[activeFileIdToSet];
-            
-            if (cachedContent !== undefined) {
-              // Use cached content
-              setActiveFileId(activeFileIdToSet);
-              setActiveContent(cachedContent);
-              setOpenTabs(tabsToOpen);
-              setTabContents(savedTabContents);
-            } else {
-              // Fetch fresh content from server
-              const response = await getFileById(roomId, activeFileIdToSet);
-              
-              if (response.success) {
-                const freshContent = response.data.content || "";
-                setActiveFileId(activeFileIdToSet);
-                setActiveContent(freshContent);
-                setOpenTabs(tabsToOpen);
-                
-                // Initialize tab contents with fresh content
-                const initialTabContents = { [activeFileIdToSet]: freshContent };
-                setTabContents(initialTabContents);
-              } else {
-                console.error('Failed to load file content:', response.error);
-                // Fallback to file object content
-                setActiveFileId(activeFileIdToSet);
-                setActiveContent(fileToOpen.content || "");
-                setOpenTabs(tabsToOpen);
-              }
-            }
-          }
-
-          const isHtmlFile = fileToOpen.language === "html" || /\.html$/i.test(fileToOpen.filename);
-          setIsPreviewOpen(isHtmlFile);
-          setIsTerminalOpen(false);
-        }
-      } catch (error) {
-        console.error("Failed to load room data:", error);
-      }
-    };
-    load();
-  }, [roomId]);
+  // Effect to open a newly created file
+  useEffect(() => {
+    if (fileToOpen && files.find(f => f._id === fileToOpen)) {
+      switchToFile(fileToOpen);
+      setFileToOpen(null);
+    }
+  }, [fileToOpen, files, switchToFile]);
 
   // Terminal height drag handlers
   useEffect(() => {
@@ -297,89 +127,41 @@ const clearStorage = (key) => {
       window.removeEventListener('mouseup', onUp);
     };
   }, []);
-  
-
-  // Socket event handlers with proper dependencies
-  const handleFileUpdated = useCallback(({ fileId, newContent, userId }) => {
-    // Don't update if this update came from the current user (avoid overwriting local changes)
-    if (userId === user?._id) {
-      return;
-    }
     
-    setFiles(prev => prev.map(f => f._id === fileId ? { ...f, content: newContent } : f));
-    
-    // Only update active content if this file is NOT currently being edited
-    setActiveFileId(currentActiveId => {
-      if (currentActiveId === fileId) {
-        // Check if user is actively typing (has unsaved changes)
-        // If so, don't overwrite their work
-        setActiveContent(currentContent => {
-          // Only update if content hasn't changed locally
-          return currentContent === newContent ? newContent : currentContent;
-        });
-      }
-      return currentActiveId;
-    });
-  }, [user]);
-
-  const handleFileRenamed = useCallback(({ fileId, newName }) => {
-    setFiles(prev => prev.map(f => f._id === fileId ? { ...f, filename: newName } : f));
-  }, []);
-
-  const handleFileDeleted = useCallback(({ fileId }) => {
-    setFiles(prev => prev.filter(f => f._id !== fileId));
-    
-    // Remove from open tabs and update active file if needed
-    setOpenTabs(prevTabs => {
-      const newTabs = prevTabs.filter(id => id !== fileId);
-      
-      // If the deleted file was active, update the active file
-      if (activeFileId === fileId) {
-        setActiveFileId(newTabs[0] || null);
-        setActiveContent('');
-      }
-      
-      return newTabs;
-    });
-  }, [activeFileId]);
-  
-  // Handle folder updates (including root folder)
-  const handleFolderUpdated = useCallback(({ folderId, name, roomId: updatedRoomId }) => {
-    setFolders(prevFolders => 
-      prevFolders.map(folder => {
-        // If folderId is null, it's the root folder (identified by room ID and null parent)
-        if ((folderId === null && folder.room === updatedRoomId && !folder.parent) || 
-            folder._id === folderId) {
-          return { ...folder, name };
-        }
-        return folder;
-      })
-    );
-  }, []);
-
-  // Register socket event listeners
+  // Preview/Editor splitter drag handlers (left-right)
   useEffect(() => {
-    if (!socket) return;
-
-    socket.on("fileUpdated", handleFileUpdated);
-    socket.on("fileRenamed", handleFileRenamed);
-    socket.on("fileDeleted", handleFileDeleted);
-    socket.on("folderUpdated", handleFolderUpdated);
-
-    // Show participants list updates
-    socket.on("roomUsers", (users) => {
-      appendTerminal(`Collaborators: ${users.join(', ')}`);
-    });
-
-    return () => {
-      socket.off("fileUpdated", handleFileUpdated);
-      socket.off("fileRenamed", handleFileRenamed);
-      socket.off("fileDeleted", handleFileDeleted);
-      socket.off("folderUpdated", handleFolderUpdated);
-      socket.off("roomUsers");
+    // Initialize leftWidth to 60% of container on mount
+    const init = () => {
+      const container = containerRef.current;
+      const w = container ? container.clientWidth : window.innerWidth;
+      setLeftWidth(Math.floor(w * 0.6));
     };
-  }, [socket, handleFileUpdated, handleFileRenamed, handleFileDeleted]);
-    
+    init();
+
+    const onMove = (e) => {
+      if (!isDraggingPreview.current) return;
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const newLeft = e.clientX - rect.left;
+      const clamped = Math.max(200, Math.min(newLeft, rect.width - 200));
+      setLeftWidth(clamped);
+    };
+    const onUp = () => {
+      isDraggingPreview.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('resize', init);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('resize', init);
+    };
+  }, []);
+
   // Auto-adjust preview/terminal based on file type when switching files
   useEffect(() => {
     if (!activeFile) {
@@ -392,60 +174,9 @@ const clearStorage = (key) => {
       setIsPreviewOpen(true);
       setIsTerminalOpen(false);
     } else {
-      setIsPreviewOpen(false);
-      // Don't auto-open terminal - let user click Run button
       setIsTerminalOpen(false);
     }
   }, [activeFile]);
-  // Chat event handlers with proper dependencies
-  const handleChatHistory = useCallback((history) => {
-    const list = history || [];
-    if (!didWelcome.current) {
-      didWelcome.current = true;
-      const welcome = {
-        _id: `welcome-${roomId}`,
-        sender: { username: "System" },
-        message: "Welcome to the room! Share files, edit code, and chat in real-time.",
-        createdAt: new Date().toISOString(),
-      };
-      setChatMessages([welcome, ...list]);
-    } else {
-      setChatMessages(list);
-    }
-  }, [roomId]);
-
-  const handleReceiveMessage = useCallback((msg) => {
-    setChatMessages((prev) => [...prev, msg]);
-  }, []);
-
-  const handleMessageUpdated = useCallback((msg) => {
-    setChatMessages((prev) =>
-      prev.map((m) => (m._id === msg._id ? msg : m))
-    );
-  }, []);
-
-  const handleMessageDeleted = useCallback(({ messageId }) => {
-    setChatMessages((prev) =>
-      prev.filter((m) => m._id !== messageId)
-    );
-  }, []);
-
-  // Register chat socket event listeners
-  useEffect(() => {
-    if (!socket) return;
-
-    socket.on("chatHistory", handleChatHistory);
-    socket.on("receiveMessage", handleReceiveMessage);
-    socket.on("messageUpdated", handleMessageUpdated);
-    socket.on("messageDeleted", handleMessageDeleted);
-
-    return () => {
-      socket.off("chatHistory", handleChatHistory);
-      socket.off("receiveMessage", handleReceiveMessage);
-      socket.off("messageUpdated", handleMessageUpdated);
-      socket.off("messageDeleted", handleMessageDeleted);
-    };
-  }, [socket, handleChatHistory, handleReceiveMessage, handleMessageUpdated, handleMessageDeleted]);
 
   // Save file before page unload
   useEffect(() => {
@@ -491,21 +222,6 @@ const clearStorage = (key) => {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [activeFileId, activeContent, roomId]);
-
-  const saveCurrentFile = async () => {
-    if (activeFileId && activeContent !== undefined) {
-      const result = await updateFile(roomId, activeFileId, { content: activeContent });
-      
-      if (result.success) {
-        return true; // Indicate success
-      } else {
-        console.error('Failed to save current file:', result.error);
-        setAutoSaveStatus('error');
-        return false; // Indicate failure
-      }
-    }
-    return true; // Nothing to save
-  };
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -567,60 +283,17 @@ const clearStorage = (key) => {
     setIsSaving(false);
   };
 
-  const handleAddFile = async (filename, folderId = null) => {
-    if (!filename) return;
-
-    const detectedLanguage = languageByFilename(filename);
-
-    const result = await createFile(roomId, {
-      filename,
-      content: "",
-      uploadedBy: user._id,
-      language: detectedLanguage,
-      folder: folderId
-    });
-
-    if (result.success) {
-      setFiles(prev => [result.data, ...prev]);
-      setActiveFileId(result.data._id);
-      setActiveContent("");
-      setOpenTabs(prev => [result.data._id, ...prev]); // Add new file to open tabs
-      setCreatingIn(null); // Clear creating state after successful creation
-      appendTerminal(`Created file ${filename}`);
-    } else {
-      appendTerminal(`Failed to create file ${filename}: ${result.error}`);
+  const onAddFile = async (filename, folderId = null) => {
+    const newFile = await handleAddFile(filename, folderId);
+    if (newFile) {
+      setFileToOpen(newFile._id);
+      setCreatingIn(null);
     }
   };
 
-  const handleAddFolder = async (name, parentFolderId = null) => {
-    if (!name) return;
-    
-    const folderData = { 
-      name, 
-      createdBy: user._id
-    };
-    
-    // Add parent folder if creating a subfolder
-    if (parentFolderId) {
-      folderData.parent = parentFolderId;
-    }
-    
-    const result = await createFolder(roomId, folderData);
-    
-    if (result.success) {
-      setFolders(prev => [...prev, result.data]);
-      setExpandedFolders(prev => new Set([...Array.from(prev), result.data._id]));
-      
-      // Also expand parent folder if creating subfolder
-      if (parentFolderId) {
-        setExpandedFolders(prev => new Set([...Array.from(prev), parentFolderId]));
-      }
-      
-      setCreatingIn(null); // Clear creating state after successful creation
-      appendTerminal(`Created folder ${name}${parentFolderId ? ' (subfolder)' : ''}`);
-    } else {
-      appendTerminal(`Failed to create folder ${name}: ${result.error}`);
-    }
+  const onAddFolder = async (name, parentFolderId = null) => {
+    await handleAddFolder(name, parentFolderId);
+    setCreatingIn(null);
   };
 
   const toggleFolder = (folderId) => {
@@ -631,305 +304,10 @@ const clearStorage = (key) => {
     });
   };
 
-  const handleCloseTab = async (fileId) => {
-    // Clear any pending auto-save timeout if closing active file
-    if (fileId === activeFileId && saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = null;
-    }
-
-    // Find the file being closed and save its content
-    const fileToClose = files.find(f => f._id === fileId);
-    if (fileToClose && fileToClose._id === activeFileId && activeContent) {
-      // Save current file content before closing and wait for completion
-      updateTabContent(activeFileId, activeContent);
-      await saveCurrentFile();
-    }
-
-    // Clear the cached content for this tab
-    setTabContents(prev => {
-      const next = { ...prev };
-      delete next[fileId];
-      saveToStorage('tabContents', next);
-      return next;
-    });
-
-    setOpenTabs(prev => prev.filter(id => id !== fileId));
-
-    // If closing the active tab, switch to another tab
-    if (activeFileId === fileId) {
-      const remainingTabs = openTabs.filter(id => id !== fileId);
-      if (remainingTabs.length > 0) {
-        // Switch to the next tab (or previous if it was the last one)
-        const currentIndex = openTabs.indexOf(fileId);
-        const nextIndex = currentIndex > 0 ? currentIndex - 1 : 0;
-        const nextTabId = remainingTabs[nextIndex];
-        const nextFile = files.find(f => f._id === nextTabId);
-        if (nextFile) {
-          // Load content from cache or file object
-          const cachedContent = tabContents[nextTabId];
-          setActiveFileId(nextTabId);
-          setActiveContent(cachedContent !== undefined ? cachedContent : (nextFile.content || ""));
-        }
-      } else {
-        // No tabs left, reset to null
-        setActiveFileId(null);
-        setActiveContent("");
-      }
-    }
-  };
-
-  const clearTerminal = () => {
-    setTerminalLines([]);
-  };
-
-  const appendTerminal = (text) => {
-    setTerminalLines(prev => [...prev, text]);
-  };
-
-  const handleExecute = async () => {
-    if (!activeFile) {
-      appendTerminal('❌ No active file to execute');
-      return;
-    }
-
-    const payload = {
-      code: activeContent,
-      language: activeFile.language || languageByFilename(activeFile.filename),
-      filename: activeFile.filename
-    };
-
-    setIsTerminalOpen(true); // Open terminal when running
-    // Set a virtual cwd to the active file's folder (by folder name or room name)
-    const activeFolder = folders.find(f => String(f._id) === String(activeFile.folder));
-    const rootFolder = folders.find(f => !f.parent && f.name === room?.name);
-    const pathParts = [room?.name].filter(Boolean);
-    if (activeFolder && activeFolder.name) pathParts.push(activeFolder.name);
-    setCwd(pathParts.join('\\'));
-    clearTerminal(); // Clear terminal before execution
-    appendTerminal(`Running ${activeFile.filename} (${payload.language})...`);
-
-    const result = await executeCode(payload);
-
-    if (result.success) {
-      if (result.data.output) {
-        appendTerminal(result.data.output.trim());
-      }
-
-      if (result.data.error) {
-        appendTerminal(`Error: ${result.data.error.trim()}`);
-      }
-
-      if (result.data.error && result.data.error.includes('not installed')) {
-        appendTerminal('\n💡 Tip: Make sure Python/Node.js/compilers are installed on the server.');
-      }
-
-      appendTerminal(`Process exited with code ${result.data.exitCode} in ${result.data.executionTime}ms`);
-    } else {
-      appendTerminal(`❌ Execution failed: ${result.error}`);
-
-      if (result.details) {
-        appendTerminal(`Details: ${result.details}`);
-      }
-
-      // Provide specific error messages based on status code
-      if (result.status === 429) {
-        appendTerminal('❌ Rate limit exceeded. Please wait before running again.');
-      } else if (result.status === 413) {
-        appendTerminal('❌ Code too large to execute.');
-      } else if (result.status >= 500) {
-        appendTerminal('❌ Server error. Please try again later.');
-      } else {
-        appendTerminal('\n💡 This might be because:');
-        appendTerminal('• Runtime tools (Python, Node.js, compilers) are not installed on the server');
-        appendTerminal('• The server environment doesn\'t support code execution');
-        appendTerminal('• Network connectivity issues');
-      }
-    }
-  };
-
-
-  const toggleTerminal = () => {
-    setIsTerminalOpen(prev => !prev);
-  };
-
-  const sendMessage = () => {
-    const trimmed = chatInput.trim();
-    if (!trimmed || !socket) return;
-    socket.emit("sendMessage", { roomId, message: trimmed, sender: user });
-    setChatInput("");
-  };
-
-  const handleEditMessage = (messageId, newMessage) => {
-    if (!socket) return;
-    socket.emit("updateMessage", { roomId, messageId, message: newMessage, userId: user._id });
-  };
-
-  const handleDeleteMessage = (messageId) => {
-    if (!socket) return;
-    socket.emit("deleteMessage", { roomId, messageId, userId: user._id });
-  };
-
-  const handleDeleteFile = async (file) => {
-    // If deleting the active file, save its content first
-    if (file._id === activeFileId && activeContent) {
-      await saveCurrentFile();
-    }
-
-    const result = await deleteFile(roomId, file._id);
-    
-    if (result.success) {
-      setFiles(prev => prev.filter(f => f._id !== file._id));
-      setOpenTabs(prev => prev.filter(id => id !== file._id)); // Remove from open tabs
-      
-      if (activeFileId === file._id) {
-        const remainingTabs = openTabs.filter(id => id !== file._id);
-        if (remainingTabs.length > 0) {
-          const nextTabId = remainingTabs[0];
-          const nextFile = files.find(f => f._id === nextTabId);
-          if (nextFile) {
-            setActiveFileId(nextTabId);
-            setActiveContent(nextFile.content || "");
-          }
-        } else {
-          setActiveFileId(null);
-          setActiveContent("");
-        }
-      }
-      
-      if (socket) {
-        socket.emit("deleteFile", { roomId, fileId: file._id, fileName: file.filename });
-      }
-      
-      appendTerminal(`Deleted file ${file.filename}`);
-    } else {
-      appendTerminal(`Failed to delete file ${file.filename}: ${result.error}`);
-    }
-  };
-
-  const handleRenameFile = async (file, newName) => {
-    if (!newName || newName === file.filename) return;
-
-    // If renaming the active file, save its content first
-    if (file._id === activeFileId && activeContent) {
-      await saveCurrentFile();
-    }
-
-    const result = await updateFile(roomId, file._id, { filename: newName });
-    
-    if (result.success) {
-      setFiles(prev => prev.map(f => f._id === file._id ? { ...f, filename: newName } : f));
-      
-      if (socket) {
-        socket.emit("renameFile", { roomId, fileId: file._id, oldName: file.filename, newName });
-      }
-      
-      appendTerminal(`Renamed file ${file.filename} -> ${newName}`);
-    } else {
-      appendTerminal(`Failed to rename file ${file.filename}: ${result.error}`);
-    }
-  };
-
-  const handleRenameFolder = async (folder, newName) => {
-    if (!newName || newName === folder.name) return;
-    
-    const result = await updateFolder(roomId, folder._id, { name: newName });
-    
-    if (result.success) {
-      setFolders(prev => prev.map(f => f._id === folder._id ? { ...f, name: newName } : f));
-      appendTerminal(`Renamed folder ${folder.name} -> ${newName}`);
-    } else {
-      appendTerminal(`Failed to rename folder ${folder.name}: ${result.error}`);
-    }
-  };
-
-  const handleDeleteFolder = async (folder) => {
-    const result = await deleteFolder(roomId, folder._id);
-    
-    if (result.success) {
-      setFolders(prev => prev.filter(f => f._id !== folder._id));
-      appendTerminal(`Deleted folder ${folder.name}`);
-    } else {
-      appendTerminal(`Failed to delete folder ${folder.name}: ${result.error}`);
-    }
-  };
-
   const handleContextMenu = (e, item, type = 'file') => {
     e.preventDefault();
     const { pageX, pageY } = e;
     setContextMenu({ x: pageX, y: pageY, item, type });
-  };
-
-  const updateTabContent = (fileId, content) => {
-    setTabContents(prev => {
-      const next = { ...prev, [fileId]: content };
-      saveToStorage('tabContents', next);
-      return next;
-    });
-  };
-  
-  // Save open tabs and active file to localStorage whenever they change
-  useEffect(() => {
-    if (openTabs.length > 0) {
-      saveToStorage('openTabs', openTabs);
-    }
-  }, [openTabs, roomId]);
-  
-  useEffect(() => {
-    if (activeFileId) {
-      saveToStorage('activeFileId', activeFileId);
-    }
-  }, [activeFileId, roomId]);
-  const switchToFile = async (fileId) => {
-    if (fileId === activeFileId) return;
-
-    // Clear any pending auto-save timeout
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = null;
-    }
-
-    // Save current tab content and wait for completion
-    if (activeFileId && activeContent !== undefined) {
-      updateTabContent(activeFileId, activeContent);
-      const saveSuccess = await saveCurrentFile();
-      
-      if (!saveSuccess) {
-        console.warn('Failed to save current file before switching');
-        // Continue anyway, but user has been warned via autoSaveStatus
-      }
-    }
-
-    const file = files.find(f => f._id === fileId);
-    if (!file) return;
-
-    // Load cached content first, fallback to DB fetch
-    const cached = tabContents[fileId];
-    if (cached !== undefined) {
-      setActiveContent(cached);
-      setActiveFileId(fileId);
-    } else {
-      const result = await getFileById(roomId, fileId);
-      
-      if (result.success) {
-        const freshContent = result.data.content || "";
-        setActiveContent(freshContent);
-        setActiveFileId(fileId);
-        // Cache the fresh content
-        updateTabContent(fileId, freshContent);
-      } else {
-        console.error('Failed to fetch file content:', result.error);
-        setActiveContent(file.content || "");
-        setActiveFileId(fileId);
-      }
-    }
-
-    setOpenTabs(prev => prev.includes(fileId) ? prev : [...prev, fileId]);
-
-    // Update preview/terminal
-    const isHtmlFile = file.language === 'html' || /\.html$/i.test(file.filename);
-    setIsPreviewOpen(isHtmlFile);
-    setIsTerminalOpen(false);
   };
   return (
     <div className="flex h-screen overflow-hidden bg-[#1E1E1E] text-gray-200" onClick={() => setContextMenu(null)}>
@@ -953,7 +331,7 @@ const clearStorage = (key) => {
               <ContextMenuItem
                 icon={Trash2}
                 onClick={() => {
-                  handleDeleteFile(contextMenu.item);
+                  handleDeleteFile(contextMenu.item._id).then(success => success && handleCloseTab(contextMenu.item._id));
                   setContextMenu(null);
                 }}
                 destructive
@@ -1020,8 +398,8 @@ const clearStorage = (key) => {
         onContextMenu={handleContextMenu}
         onSetEditingItem={setEditingItem}
         onSetCreatingIn={setCreatingIn}
-        onAddFile={handleAddFile}
-        onAddFolder={handleAddFolder}
+        onAddFile={onAddFile}
+        onAddFolder={onAddFolder}
         onRenameFile={handleRenameFile}
         onRenameFolder={handleRenameFolder}
         onDeleteFile={handleDeleteFile}
@@ -1071,69 +449,75 @@ const clearStorage = (key) => {
               </div>
             </div>
           ) : (
-            // If previewing an HTML file, show iframe with injected CSS
-            isPreviewOpen && activeFile && (activeFile.language === 'html' || /\.html$/i.test(activeFile.filename)) ? (
-              (() => {
-                // Find all CSS and JS files in the same folder as the HTML file
-                const htmlFile = activeFile;
-                const htmlFolder = htmlFile.folder;
-                const cssFiles = files.filter(f =>
-                  (f.language === 'css' || /\.css$/i.test(f.filename)) &&
-                  f.folder === htmlFolder
-                );
-                const jsFiles = files.filter(f =>
-                  (f.language === 'javascript' || /\.js$/i.test(f.filename)) &&
-                  f.folder === htmlFolder
-                );
-                // If a CSS or JS file is open and being edited, use the latest unsaved value (activeContent)
-                const cssContents = cssFiles.map(f => {
-                  if (f._id === activeFileId && selectedLanguage === 'css') {
-                    return activeContent;
-                  }
-                  return tabContents[f._id] ?? f.content ?? '';
-                });
-                const jsContents = jsFiles.map(f => {
-                  if (f._id === activeFileId && selectedLanguage === 'javascript') {
-                    return activeContent;
-                  }
-                  return tabContents[f._id] ?? f.content ?? '';
-                });
-                const htmlContent = tabContents[htmlFile._id] ?? htmlFile.content ?? '';
-                // Remove <script src=...> tags from HTML to prevent 404s, since all JS is injected inline
-                let previewHtml = buildHtmlPreview(htmlContent.replace(/<script[^>]*src=[^>]+><\/script>/gi, ''), cssContents);
-                if (jsContents.length > 0) {
-                  const scripts = jsContents.map(code => `<script>${code}\n<\/script>`).join('\n');
-                  if (/<\/body>/i.test(previewHtml)) {
-                    previewHtml = previewHtml.replace(/<\/body>/i, scripts + '</body>');
-                  } else {
-                    previewHtml += scripts;
-                  }
-                }
-                return (
-                  <iframe
-                    title="HTML Preview"
-                    className="flex-1 w-full h-full bg-white border-none"
-                    sandbox="allow-scripts"
-                    srcDoc={previewHtml}
+            <div ref={containerRef} className="flex-1 flex overflow-hidden">
+              <div style={{ width: leftWidth ? `${leftWidth}px` : '60%' }} className="flex-shrink-0 flex flex-col min-w-0">
+                <EditorArea
+                  activeContent={activeContent}
+                  selectedLanguage={selectedLanguage}
+                  onEditorMount={(editor) => {
+                    editorRef.current = editor;
+                    setTimeout(() => editor.focus(), 100);
+                  }}
+                  onContentChange={debouncedHandleChange}
+                  roomId={roomId}
+                  files={files}
+                  folders={folders}
+                  activeFileId={activeFileId}
+                />
+              </div>
+              {isPreviewOpen && activeFile && (activeFile.language === 'html' || /\.html$/i.test(activeFile.filename)) && (
+                <>
+                  <div
+                    className="w-1.5 cursor-col-resize bg-gray-800 hover:bg-gray-700 transition-colors"
+                    onMouseDown={() => {
+                      isDraggingPreview.current = true;
+                      document.body.style.cursor = 'col-resize';
+                      document.body.style.userSelect = 'none';
+                    }}
                   />
-                );
-              })()
-            ) : (
-              <EditorArea
-                activeContent={activeContent}
-                selectedLanguage={selectedLanguage}
-                isPreviewOpen={isPreviewOpen}
-                onEditorMount={(editor) => {
-                  editorRef.current = editor;
-                  setTimeout(() => editor.focus(), 100);
-                }}
-                onContentChange={debouncedHandleChange}
-                roomId={roomId}
-                files={files}
-                folders={folders}
-                activeFileId={activeFileId}
-              />
-            )
+                  <div className="flex-1 min-w-0">
+                    {(() => {
+                      const htmlFile = activeFile;
+                      const htmlFolder = htmlFile.folder;
+                      const cssFiles = files.filter(f =>
+                        (f.language === 'css' || /\.css$/i.test(f.filename)) &&
+                        f.folder === htmlFolder
+                      );
+                      const jsFiles = files.filter(f =>
+                        (f.language === 'javascript' || /\.js$/i.test(f.filename)) &&
+                        f.folder === htmlFolder
+                      );
+                      const cssContents = cssFiles.map(f => {
+                        if (f._id === activeFileId && selectedLanguage === 'css') return activeContent;
+                        return tabContents[f._id] ?? f.content ?? '';
+                      });
+                      const jsContents = jsFiles.map(f => {
+                        if (f._id === activeFileId && selectedLanguage === 'javascript') return activeContent;
+                        return tabContents[f._id] ?? f.content ?? '';
+                      });
+                      const htmlContent = tabContents[htmlFile._id] ?? htmlFile.content ?? '';
+                      let previewHtml = buildHtmlPreview(htmlContent.replace(/<script[^>]*src=[^>]+><\/script>/gi, ''), cssContents);
+                      if (jsContents.length > 0) {
+                        const scripts = jsContents.map(code => `<script>${code}\n<\/script>`).join('\n');
+                        if (/<\/body>/i.test(previewHtml)) {
+                          previewHtml = previewHtml.replace(/<\/body>/i, scripts + '</body>');
+                        } else {
+                          previewHtml += scripts;
+                        }
+                      }
+                      return (
+                        <iframe
+                          title="HTML Preview"
+                          className="w-full h-full bg-white border-none"
+                          sandbox="allow-scripts"
+                          srcDoc={previewHtml}
+                        />
+                      );
+                    })()}
+                  </div>
+                </>
+              )}
+            </div>
           )}
         </div>
 
@@ -1162,7 +546,7 @@ const clearStorage = (key) => {
         onSendMessage={sendMessage}
         onToggleChat={() => setIsChatOpen(v => !v)}
         onEditMessage={handleEditMessage}
-        onDeleteMessage={handleDeleteMessage}
+        onDeleteMessage={deleteChatMessage}
         currentUser={user}
       />
     </div>

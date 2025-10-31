@@ -249,6 +249,7 @@ const FileExplorer = ({
                 className={`group flex items-center justify-between px-2 py-1 rounded cursor-pointer ${
                   activeFileId === f._id ? 'bg-gray-800' : 'hover:bg-gray-800/60'
                 } ${draggedItem?._id === f._id ? 'opacity-50' : ''}`}
+                style={{ paddingLeft: `${(depth + 1) * 16 + 8}px` }}
                 onClick={() => onFileSelect(f._id, f.content || "")}
                 onContextMenu={(e) => handleContextMenu(e, f, 'file')}
                 draggable
