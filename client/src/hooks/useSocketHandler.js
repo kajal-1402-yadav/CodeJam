@@ -1,5 +1,4 @@
-import { useEffect, useCallback } from "react";
-import useAuthContext from "./useAuthContext";
+import { useEffect } from "react";
 
 export function useSocketHandler({
   socket,
@@ -11,7 +10,8 @@ export function useSocketHandler({
   setOpenTabs,
   appendTerminal,
   activeFileId,
-  user
+  user,
+  isExecuting
 }) {
 
   useEffect(() => {
@@ -50,7 +50,10 @@ export function useSocketHandler({
     socket.on("fileRenamed", handleFileRenamed);
     socket.on("fileDeleted", handleFileDeleted);
     socket.on("folderUpdated", handleFolderUpdated);
-    socket.on("roomUsers", (users) => appendTerminal(`Collaborators: ${users.join(', ')}`));
+    socket.on("roomUsers", (users) => {
+      // Removed collaborator presence messages from terminal to prevent spam
+      // Users can see active collaborators in the UI instead
+    });
 
     return () => {
       socket.emit("leaveRoom", { roomId, user });
@@ -60,5 +63,5 @@ export function useSocketHandler({
       socket.off("folderUpdated", handleFolderUpdated);
       socket.off("roomUsers");
     };
-  }, [socket, roomId, user, setFiles, setFolders, setActiveFileId, setActiveContent, setOpenTabs, appendTerminal, activeFileId]);
+  }, [socket, roomId, user, setFiles, setFolders, setActiveFileId, setActiveContent, setOpenTabs, appendTerminal, activeFileId, isExecuting]);
 }

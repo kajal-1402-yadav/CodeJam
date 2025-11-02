@@ -46,6 +46,7 @@ export default function RoomEditor() {
   const [creatingIn, setCreatingIn] = useState(null);
   const [autoSaveStatus, setAutoSaveStatus] = useState('saved'); // 'saving', 'saved', 'error'
   const [fileToOpen, setFileToOpen] = useState(null);
+  const [recentlyCreatedId, setRecentlyCreatedId] = useState(null);
   const editorRef = useRef(null);
   const containerRef = useRef(null);
   const [leftWidth, setLeftWidth] = useState(null); // width of editor pane in px
@@ -55,6 +56,7 @@ export default function RoomEditor() {
   const appendTerminal = useCallback((text) => {
     setTerminalLines(prev => [...prev, text]);
   }, []);
+  const [isExecuting, setIsExecuting] = useState(false);
 
   const {
     files, setFiles, folders, setFolders, room, setRoom, loading,
@@ -79,7 +81,8 @@ export default function RoomEditor() {
   } = useChatHandler(socket, roomId);
 
   useSocketHandler({
-    socket, roomId, setFiles, setFolders, setActiveFileId, setActiveContent, setOpenTabs, appendTerminal, activeFileId, user
+    socket, roomId, setFiles, setFolders, setActiveFileId, setActiveContent, setOpenTabs, appendTerminal, activeFileId, user,
+    isExecuting
   });
 
   // Initial file opening logic
@@ -288,6 +291,9 @@ export default function RoomEditor() {
     if (newFile) {
       setFileToOpen(newFile._id);
       setCreatingIn(null);
+      setRecentlyCreatedId(newFile._id);
+      // Clear the highlight after 3s
+      setTimeout(() => setRecentlyCreatedId(null), 3000);
     }
   };
 
@@ -393,6 +399,7 @@ export default function RoomEditor() {
         expandedFolders={expandedFolders}
         editingItem={editingItem}
         creatingIn={creatingIn}
+        recentlyCreatedId={recentlyCreatedId}
         onFileSelect={switchToFile}
         onToggleFolder={toggleFolder}
         onContextMenu={handleContextMenu}
@@ -413,16 +420,22 @@ export default function RoomEditor() {
         {/* Main editor */}
         <div className="flex-1 flex flex-col h-full overflow-hidden">
           {/* Topbar */}
-          <Topbar
+            <Topbar
             activeFile={activeFile}
             selectedLanguage={selectedLanguage}
             isSaving={isSaving}
             autoSaveStatus={autoSaveStatus}
             isPreviewOpen={isPreviewOpen}
             onSave={handleSave}
-            onRun={() => {
-              handleExecute();
-              setIsTerminalOpen(true);
+            onRun={async () => {
+              // Mark executing so socket presence messages don't flood the terminal
+              try {
+                setIsExecuting(true);
+                setIsTerminalOpen(true);
+                await handleExecute();
+              } finally {
+                setIsExecuting(false);
+              }
             }}
             onTogglePreview={() => setIsPreviewOpen(v => !v)}
             onToggleChat={() => setIsChatOpen(v => !v)}
@@ -450,7 +463,7 @@ export default function RoomEditor() {
             </div>
           ) : (
             <div ref={containerRef} className="flex-1 flex overflow-hidden">
-              <div style={{ width: leftWidth ? `${leftWidth}px` : '60%' }} className="flex-shrink-0 flex flex-col min-w-0">
+              <div style={{ width: isPreviewOpen ? (leftWidth ? `${leftWidth}px` : '60%') : '100%' }} className="flex-shrink-0 flex flex-col min-w-0">
                 <EditorArea
                   activeContent={activeContent}
                   selectedLanguage={selectedLanguage}

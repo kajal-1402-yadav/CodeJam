@@ -95,7 +95,8 @@ const FileExplorer = ({
   onDeleteFile,
   onDeleteFolder,
   roomName,
-  onNavigateBack
+  onNavigateBack,
+  recentlyCreatedId
 }) => {
   // Find the root folder (folder with room name and no parent)
   const rootFolder = folders.find(f => !f.parent && f.name === roomName);
@@ -269,7 +270,13 @@ const FileExplorer = ({
                       placeholder="File name"
                     />
                   ) : (
-                    <span className="text-sm truncate">{f.filename}</span>
+                    <span className="text-sm truncate flex items-center gap-2">
+                      <span>{f.filename}</span>
+                      {/* show green check for recently created file */}
+                      {recentlyCreatedId === f._id && (
+                        <Check size={14} className="text-green-400" />
+                      )}
+                    </span>
                   )}
                 </div>
               </div>

@@ -1,18 +1,28 @@
 import { useState, useCallback } from "react";
 import { executeCode } from "../services/executeService";
 
-export function useCodeExecution({ activeFile, activeContent, folders, room, language }) {
+export function useCodeExecution({ activeFile, activeContent, folders, room, language, appendTerminal: appendTerminalProp, setTerminalLines: setTerminalLinesProp }) {
     const [isTerminalOpen, setIsTerminalOpen] = useState(false);
-    const [terminalLines, setTerminalLines] = useState(() => []);
+    const [internalTerminalLines, setInternalTerminalLines] = useState(() => []);
     const [cwd, setCwd] = useState('');
 
+    const usingExternalTerminal = typeof appendTerminalProp === 'function' && typeof setTerminalLinesProp === 'function';
+
     const appendTerminal = useCallback((text) => {
-        setTerminalLines(prev => [...prev, text]);
-    }, []);
+        if (usingExternalTerminal) {
+            appendTerminalProp(text);
+        } else {
+            setInternalTerminalLines(prev => [...prev, text]);
+        }
+    }, [usingExternalTerminal, appendTerminalProp]);
 
     const clearTerminal = useCallback(() => {
-        setTerminalLines([]);
-    }, []);
+        if (usingExternalTerminal) {
+            setTerminalLinesProp([]);
+        } else {
+            setInternalTerminalLines([]);
+        }
+    }, [usingExternalTerminal, setTerminalLinesProp]);
 
     const handleExecute = useCallback(async () => {
         if (!activeFile) {
@@ -26,6 +36,12 @@ export function useCodeExecution({ activeFile, activeContent, folders, room, lan
             filename: activeFile.filename
         };
 
+        // Debug: log execution attempts
+        try {
+            // eslint-disable-next-line no-console
+            console.log('useCodeExecution: executing', { filename: activeFile?.filename, language: payload.language });
+        } catch {}
+
         setIsTerminalOpen(true);
         const activeFolder = folders.find(f => String(f._id) === String(activeFile.folder));
         const pathParts = [room?.name].filter(Boolean);
@@ -36,6 +52,11 @@ export function useCodeExecution({ activeFile, activeContent, folders, room, lan
         appendTerminal(`Running ${activeFile.filename} (${payload.language})...`);
 
         const result = await executeCode(payload);
+        // Debug: log result
+        try {
+            // eslint-disable-next-line no-console
+            console.log('useCodeExecution: result', result);
+        } catch {}
 
         if (result.success) {
             if (result.data.output) appendTerminal(result.data.output.trim());
@@ -51,6 +72,8 @@ export function useCodeExecution({ activeFile, activeContent, folders, room, lan
 
     return {
         isTerminalOpen, setIsTerminalOpen, cwd,
-        handleExecute, toggleTerminal
+        handleExecute, toggleTerminal,
+        // expose internal terminal lines for debugging when not using external terminal
+        internalTerminalLines
     };
 }
