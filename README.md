@@ -1,7 +1,6 @@
 # 🚀 CodeJam: Real-time Collaborative Code Editor
 
-CodeJam is a **collaborative, real-time code editor and interview workspace**. It provides a browser-based IDE with live collaboration, chat, file management, and code execution so teams and interviewers can work together seamlessly on coding problems.
-
+CodeJam is a real-time collaborative code editor that runs entirely in the browser. It lets multiple users work together on code, share files, chat, and manage rooms — all inside a fast and modern workspace. With live collaboration, a built-in file explorer, and integrated code execution, CodeJam makes team coding, learning, and project work seamless.
 ---
 
 ## ✨ Key Features
@@ -25,9 +24,14 @@ CodeJam is a **collaborative, real-time code editor and interview workspace**. I
 
 ## 🖼️ Screenshots
 
-| Homepage | Dashboard | Room Editor |
-| :---: | :---: | :---: |
-| ![Homepage](docs/screenshots/Homepage.png) | ![Dashboard](docs/screenshots/Dashboard.png) | ![Room Editor](docs/screenshots/RoomEditor.png) |
+# Homepage 
+| ![Homepage](docs/screenshots/Homepage.png) 
+
+# Dashboard
+![Dashboard](docs/screenshots/Dashboard.png) 
+
+# Room Editor
+![Room Editor](docs/screenshots/RoomEditor.png) 
 
 ---
 
