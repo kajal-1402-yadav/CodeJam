@@ -15,7 +15,6 @@ CodeJam is a collaborative, real-time code editor and interview workspace. It pr
 
 Screenshots
 -----------
-Below are example screenshots (placeholders). Replace these placeholders with real screenshots by adding image files to `docs/screenshots/` and updating the filenames below if needed.
 
 ![Homepage](docs/screenshots/Homepage.png)
 
