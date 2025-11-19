@@ -56,7 +56,7 @@
     ```powershell
     cd server
     npm install
-    npm run dev
+    npm start
     ```
     > **Note:** The server API runs by default on `http://localhost:3000` (or another port if configured).
 
