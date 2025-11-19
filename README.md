@@ -3,7 +3,7 @@
 <p style="font-size:0.95rem; margin:0;">
   CodeJam is a real-time collaborative code editor that runs entirely in the browser. It lets multiple users work together on code, share files, chat, and manage rooms — all inside a fast and modern workspace. With live collaboration, a built-in file explorer, and integrated code execution, CodeJam makes team coding, learning, and project work seamless.
 </p>
----
+
 
 ## ✨ Key Features
 
