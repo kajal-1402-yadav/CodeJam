@@ -15,11 +15,13 @@ CodeJam is a collaborative, real-time code editor and interview workspace. It pr
 
 Screenshots
 -----------
-
+Homepage
 ![Homepage](docs/screenshots/Homepage.png)
 
+Dashboard
 ![Dashboard](docs/screenshots/Dashboard.png)
 
+Room Editor
 ![Room Editor](docs/screenshots/RoomEditor.png)
 
 
